@@ -5,6 +5,7 @@ import type {
   Screen,
   Playlist,
   DashboardStats,
+  VersionCheck,
   ApiResponse,
   PaginatedResponse,
   DeviceFormData,
@@ -392,6 +393,16 @@ export const dashboardService = {
       }
       throw new Error(getErrorMessage(error));
     }
+  },
+
+  async checkForUpdate(): Promise<VersionCheck> {
+    const response = await apiClient.get<ApiResponse<VersionCheck>>('/dashboard/version-check');
+    return response.data.data;
+  },
+
+  async performUpdate(): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<ApiResponse<{ success: boolean; message: string }>>('/dashboard/update');
+    return response.data.data;
   },
 };
 
@@ -1073,6 +1084,75 @@ export const settingsService = {
     } catch (error) {
       throw new Error(getErrorMessage(error));
     }
+  },
+};
+
+// Plugin service
+export const pluginService = {
+  async getAll(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/plugins');
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async getById(id: number): Promise<any> {
+    try {
+      const response = await apiClient.get(`/plugins/${id}`);
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async getAllInstances(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/plugins/instances/all');
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async getInstance(id: number): Promise<any> {
+    try {
+      const response = await apiClient.get(`/plugins/instances/${id}`);
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async createInstance(data: { pluginId: number; name?: string; settings?: Record<string, any> }): Promise<any> {
+    try {
+      const response = await apiClient.post('/plugins/instances', data);
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async updateInstance(id: number, data: { name?: string; settings?: Record<string, any> }): Promise<any> {
+    try {
+      const response = await apiClient.put(`/plugins/instances/${id}`, data);
+      return response.data.data || response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async deleteInstance(id: number): Promise<void> {
+    try {
+      await apiClient.delete(`/plugins/instances/${id}`);
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  getRenderUrl(id: number, mode: string = 'preview'): string {
+    return `${config.apiUrl}/plugins/instances/${id}/render?mode=${mode}&t=${Date.now()}`;
   },
 };
 

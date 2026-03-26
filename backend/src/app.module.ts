@@ -23,6 +23,7 @@ import { CommonModule } from './common/common.module';
 import { ScreenDesignerModule } from './screen-designer/screen-designer.module';
 import { EventsModule } from './events/events.module';
 import { SettingsModule } from './settings/settings.module';
+import { PluginsModule } from './plugins/plugins.module';
 import { configuration } from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 
@@ -92,6 +93,7 @@ import { validationSchema } from './config/validation.schema';
     ScreenDesignerModule,
     EventsModule,
     SettingsModule,
+    PluginsModule,
   ],
   controllers: [],
   providers: [

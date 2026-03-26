@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { DefaultScreenService } from './default-screen.service';
 import { ScreenRendererService } from '../../screen-designer/services/screen-renderer.service';
+import { PluginsService } from '../../plugins/plugins.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,6 +28,7 @@ export class DisplayService {
     private config: ConfigService,
     private defaultScreenService: DefaultScreenService,
     private screenRendererService: ScreenRendererService,
+    private pluginsService: PluginsService,
   ) {}
 
   /**
@@ -72,6 +74,11 @@ export class DisplayService {
                     },
                   },
                 },
+                pluginInstance: {
+                  include: {
+                    plugin: true,
+                  },
+                },
               },
               orderBy: {
                 order: 'asc',
@@ -91,10 +98,14 @@ export class DisplayService {
         status: 0,
         image_url: '',
         filename: '',
+        image_url_timeout: 0,
         firmware_url: '',
         update_firmware: false,
         refresh_rate: 0,
         reset_firmware: true,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         message: 'Device removed from server',
       };
     }
@@ -156,7 +167,7 @@ export class DisplayService {
 
       await this.defaultScreenService.ensureDefaultScreenExists();
       const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
-      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}`;
+      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       // Get base64 if requested
       let imageData: string | undefined;
@@ -171,12 +182,16 @@ export class DisplayService {
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: 'default-screen.png',
+        filename: `default-screen-${Date.now()}.png`,
+        image_url_timeout: 0,
         image_data: imageData,
         firmware_url: firmwareUrl,
         update_firmware: !!firmwareUrl,
         refresh_rate: defaultRefreshRate,
         reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
@@ -190,7 +205,7 @@ export class DisplayService {
 
       await this.defaultScreenService.ensureDefaultScreenExists();
       const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
-      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}`;
+      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       // Get base64 if requested
       let imageData: string | undefined;
@@ -205,12 +220,16 @@ export class DisplayService {
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: 'default-screen.png',
+        filename: `default-screen-${Date.now()}.png`,
+        image_url_timeout: 0,
         image_data: imageData,
         firmware_url: firmwareUrl,
         update_firmware: !!firmwareUrl,
         refresh_rate: defaultRefreshRate,
         reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
@@ -271,11 +290,15 @@ export class DisplayService {
         status: 0,
         image_url: imageUrl,
         filename: this.getImageFilename(currentScreen.screen.imageUrl),
+        image_url_timeout: 0,
         image_data: useBase64 ? await this.getBase64Image(currentScreen.screen.imageUrl) : undefined,
         firmware_url: firmwareUrl,
         update_firmware: !!firmwareUrl,
         refresh_rate: effectiveRefreshRate,
         reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         refresh_at: nextRefreshAt,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
@@ -310,11 +333,15 @@ export class DisplayService {
           status: 0,
           image_url: captureUrl,
           filename: dynamicFilename,
+          image_url_timeout: 0,
           image_data: undefined,
           firmware_url: firmwareUrl,
           update_firmware: !!firmwareUrl,
           refresh_rate: effectiveRefreshRate,
           reset_firmware: false,
+          special_function: '',
+          temperature_profile: 'default',
+          maximum_compatibility: false,
           refresh_at: nextRefreshAt,
           battery: updatedDevice.battery,
           wifi: updatedDevice.wifi,
@@ -354,32 +381,69 @@ export class DisplayService {
         status: 0,
         image_url: renderUrl,
         filename: dynamicFilename,
+        image_url_timeout: 0,
         image_data: undefined,
         firmware_url: firmwareUrl,
         update_firmware: !!firmwareUrl,
         refresh_rate: effectiveRefreshRate,
         reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
+        refresh_at: nextRefreshAt,
+        battery: updatedDevice.battery,
+        wifi: updatedDevice.wifi,
+      };
+    } else if (currentScreen.pluginInstance?.plugin) {
+      // Plugin instance - render via plugin engine
+      const pluginInstance = currentScreen.pluginInstance;
+      const timestamp = Date.now();
+
+      const renderUrl = `${apiUrl}/api/plugins/instances/${pluginInstance.id}/render?mode=device&t=${timestamp}`;
+      const dynamicFilename = `plugin-${pluginInstance.plugin.slug}-${timestamp}.png`;
+
+      this.logger.debug(
+        `Serving PLUGIN "${pluginInstance.plugin.name}" to device ${device.name} (refresh: ${effectiveRefreshRate}s)`,
+      );
+
+      return {
+        status: 0,
+        image_url: renderUrl,
+        filename: dynamicFilename,
+        image_url_timeout: 0,
+        image_data: undefined,
+        firmware_url: firmwareUrl,
+        update_firmware: !!firmwareUrl,
+        refresh_rate: effectiveRefreshRate,
+        reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         refresh_at: nextRefreshAt,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
     } else {
-      // Neither screen nor screenDesign - should not happen, but handle gracefully
-      this.logger.warn(`Playlist item ${currentScreen.id} has no screen or screenDesign`);
+      // Neither screen, screenDesign, nor plugin - handle gracefully
+      this.logger.warn(`Playlist item ${currentScreen.id} has no screen, screenDesign, or plugin`);
 
       await this.defaultScreenService.ensureDefaultScreenExists();
       const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
-      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}`;
+      const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: 'default-screen.png',
+        filename: `default-screen-${Date.now()}.png`,
+        image_url_timeout: 0,
         image_data: undefined,
         firmware_url: firmwareUrl,
         update_firmware: !!firmwareUrl,
         refresh_rate: defaultRefreshRate,
         reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: false,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
@@ -658,6 +722,11 @@ export class DisplayService {
                         template: true,
                       },
                     },
+                  },
+                },
+                pluginInstance: {
+                  include: {
+                    plugin: true,
                   },
                 },
               },

@@ -4,7 +4,7 @@
  */
 import { useCallback, useState, useRef, useEffect } from 'react';
 import type { ScreenWidget, WidgetTemplate, CustomWidget, GridCellOverride } from '../../types';
-import { screenDesignerService, customWidgetService } from '../../services/api';
+import { screenDesignerService, customWidgetService, pluginService } from '../../services/api';
 import { config } from '../../config';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { LocationPickerModal } from './LocationPickerModal';
@@ -17,6 +17,9 @@ interface WidgetSettingsPanelProps {
   onUpdateWidget: (updates: Partial<ScreenWidget>) => void;
   onDeleteWidget: () => void;
   onSelectWidget?: (id: number) => void;
+  pluginBrowserOpen?: boolean;
+  selectedPlugin?: any;
+  onAddPluginToCanvas?: (instanceId: number, pluginId: number, pluginSlug: string) => void;
 }
 
 // Get the browser's detected timezone
@@ -449,6 +452,9 @@ export function WidgetSettingsPanel({
   onUpdateWidget,
   onDeleteWidget,
   onSelectWidget,
+  pluginBrowserOpen,
+  selectedPlugin,
+  onAddPluginToCanvas,
 }: WidgetSettingsPanelProps) {
   const [isWidgetListExpanded, setIsWidgetListExpanded] = useState(true);
   const [customWidgetData, setCustomWidgetData] = useState<CustomWidget | null>(null);
@@ -614,6 +620,16 @@ export function WidgetSettingsPanel({
     </div>
   );
 
+  // Plugin settings panel (shown when plugin browser is open and a plugin is selected)
+  if (pluginBrowserOpen && selectedPlugin && onAddPluginToCanvas) {
+    return (
+      <PluginSettingsPanel
+        plugin={selectedPlugin}
+        onAddToCanvas={onAddPluginToCanvas}
+      />
+    );
+  }
+
   if (!widget || !template) {
     return (
       <div className="w-72 bg-bg-card border-l border-border-light flex flex-col h-full">
@@ -638,7 +654,7 @@ export function WidgetSettingsPanel({
           </div>
           <p className="text-sm font-medium text-text-secondary mb-1">No Selection</p>
           <p className="text-xs text-text-placeholder text-center">
-            Select a widget to edit its properties
+            {pluginBrowserOpen ? 'Select a plugin to configure' : 'Select a widget to edit its properties'}
           </p>
         </div>
       </div>
@@ -1369,6 +1385,81 @@ export function WidgetSettingsPanel({
               <p className="text-xs text-text-muted">
                 Fetches star count from GitHub API. Configure GITHUB_TOKEN in backend for higher rate limits.
               </p>
+            </div>
+          )}
+
+          {/* Plugin Widget settings — rendered from plugin's settingsSchema */}
+          {template.name.startsWith('plugin-') && (
+            <div className="space-y-3">
+              <div className="p-3 bg-accent-light rounded-lg border border-border-light">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                  <span className="text-xs font-medium text-accent">Plugin: {template.label}</span>
+                </div>
+                <p className="text-xs text-text-muted">Configure this plugin widget. Each widget instance can have different settings.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">Layout</label>
+                <select
+                  value={(widget.config.layout as string) || 'full'}
+                  onChange={(e) => updateConfig('layout', e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-border-default bg-bg-page text-text-primary"
+                >
+                  <option value="full">Full</option>
+                  <option value="half_horizontal">Half Horizontal</option>
+                  <option value="half_vertical">Half Vertical</option>
+                  <option value="quadrant">Quadrant</option>
+                </select>
+              </div>
+
+              {/* Dynamic settings from plugin's settingsSchema */}
+              {(template.defaultConfig as any)?.settingsSchema?.map((field: any) => (
+                <div key={field.key}>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">{field.label || field.key}</label>
+                  {field.type === 'select' ? (
+                    <select
+                      value={(widget.config[field.key] as string) || field.default || ''}
+                      onChange={(e) => updateConfig(field.key, e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm rounded-lg border border-border-default bg-bg-page text-text-primary"
+                    >
+                      <option value="">Select...</option>
+                      {(field.options || []).map((opt: any) => {
+                        const val = typeof opt === 'object' ? opt.value : opt;
+                        const lbl = typeof opt === 'object' ? opt.label : opt;
+                        return <option key={val} value={val}>{lbl}</option>;
+                      })}
+                    </select>
+                  ) : field.type === 'toggle' ? (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!widget.config[field.key]}
+                        onChange={(e) => updateConfig(field.key, e.target.checked)}
+                        className="accent-accent"
+                      />
+                      <span className="text-xs text-text-secondary">{field.label}</span>
+                    </label>
+                  ) : field.type === 'number' ? (
+                    <input
+                      type="number"
+                      value={(widget.config[field.key] as number) ?? field.default ?? ''}
+                      onChange={(e) => updateConfig(field.key, e.target.value ? Number(e.target.value) : '')}
+                      className="w-full px-3 py-1.5 text-sm rounded-lg border border-border-default bg-bg-page text-text-primary"
+                    />
+                  ) : (
+                    <input
+                      type={field.encrypted ? 'password' : 'text'}
+                      value={(widget.config[field.key] as string) || field.default || ''}
+                      onChange={(e) => updateConfig(field.key, e.target.value)}
+                      placeholder={field.encrypted ? 'Enter secret...' : ''}
+                      className="w-full px-3 py-1.5 text-sm rounded-lg border border-border-default bg-bg-page text-text-primary"
+                    />
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -2202,6 +2293,229 @@ function WeatherWidgetSettings({
           max={100}
         />
       </Field>
+    </div>
+  );
+}
+
+/**
+ * PluginSettingsPanel — shown in right panel when configuring a plugin to add to canvas
+ */
+function PluginSettingsPanel({
+  plugin,
+  onAddToCanvas,
+}: {
+  plugin: any;
+  onAddToCanvas: (instanceId: number, pluginId: number, pluginSlug: string) => void;
+}) {
+  const [instances, setInstances] = useState<any[]>([]);
+  const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [settings, setSettings] = useState<Record<string, any>>({});
+  const [instanceName, setInstanceName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const settingsSchema: any[] = plugin.settingsSchema || [];
+
+  // Load existing instances for this plugin
+  useEffect(() => {
+    loadInstances();
+  }, [plugin.id]);
+
+  async function loadInstances() {
+    setIsLoading(true);
+    try {
+      const all = await pluginService.getAllInstances();
+      const pluginInstances = all.filter((inst: any) => inst.pluginId === plugin.id);
+      setInstances(pluginInstances);
+      if (pluginInstances.length > 0) {
+        setSelectedInstanceId(pluginInstances[0].id);
+        setIsCreating(false);
+      } else {
+        setIsCreating(true);
+        initDefaultSettings();
+      }
+    } catch {
+      setIsCreating(true);
+      initDefaultSettings();
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function initDefaultSettings() {
+    const defaults: Record<string, any> = {};
+    for (const field of settingsSchema) {
+      if (field.default !== undefined) defaults[field.key] = field.default;
+      else if (field.options?.length > 0) defaults[field.key] = field.options[0];
+    }
+    setSettings(defaults);
+    setInstanceName(`${plugin.name}`);
+  }
+
+  async function handleAdd() {
+    if (isCreating) {
+      // Create new instance then add
+      setIsSaving(true);
+      try {
+        const instance = await pluginService.createInstance({
+          pluginId: plugin.id,
+          name: instanceName || plugin.name,
+          settings,
+        });
+        onAddToCanvas(instance.id, plugin.id, plugin.slug);
+      } catch (err) {
+        console.error('Failed to create plugin instance:', err);
+      } finally {
+        setIsSaving(false);
+      }
+    } else if (selectedInstanceId) {
+      onAddToCanvas(selectedInstanceId, plugin.id, plugin.slug);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-72 bg-bg-card border-l border-border-light flex flex-col h-full items-center justify-center">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-72 bg-bg-card border-l border-border-light flex flex-col h-full">
+      {/* Header */}
+      <div className="p-4 border-b border-border-light">
+        <div className="flex items-center justify-between mb-0.5">
+          <h2 className="text-sm font-semibold text-text-primary">{plugin.name}</h2>
+          <a
+            href={`https://usetrmnl.com/integrations/${plugin.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-text-placeholder hover:text-accent transition-colors"
+            title="View on TRMNL"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+        </div>
+        <p className="text-xs text-text-muted">{plugin.description || 'Configure plugin'}</p>
+      </div>
+
+      {/* Settings */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Instance selector */}
+        {instances.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Instance</label>
+            <select
+              value={isCreating ? '__new__' : (selectedInstanceId || '')}
+              onChange={(e) => {
+                if (e.target.value === '__new__') {
+                  setIsCreating(true);
+                  setSelectedInstanceId(null);
+                  initDefaultSettings();
+                } else {
+                  setIsCreating(false);
+                  setSelectedInstanceId(Number(e.target.value));
+                }
+              }}
+              className="w-full px-3 py-2 text-sm bg-bg-muted border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              {instances.map((inst: any) => (
+                <option key={inst.id} value={inst.id}>
+                  {inst.name || `Instance #${inst.id}`}
+                </option>
+              ))}
+              <option value="__new__">+ Create new</option>
+            </select>
+          </div>
+        )}
+
+        {/* New instance settings */}
+        {isCreating && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">Name</label>
+              <input
+                type="text"
+                value={instanceName}
+                onChange={(e) => setInstanceName(e.target.value)}
+                placeholder="Instance name"
+                className="w-full px-3 py-2 text-sm bg-bg-muted border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+
+            {/* Dynamic settings from schema */}
+            {settingsSchema.map((field: any) => (
+              <div key={field.key}>
+                <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                  {field.label || field.key}
+                  {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                </label>
+                {field.type === 'select' ? (
+                  <select
+                    value={settings[field.key] || ''}
+                    onChange={(e) => setSettings({ ...settings, [field.key]: e.target.value })}
+                    className="w-full px-3 py-2 text-sm bg-bg-muted border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    <option value="">Select...</option>
+                    {(field.options || []).map((opt: any) => {
+                      const val = typeof opt === 'object' ? opt.value : opt;
+                      const lbl = typeof opt === 'object' ? opt.label : opt;
+                      return <option key={val} value={val}>{lbl}</option>;
+                    })}
+                  </select>
+                ) : field.type === 'toggle' ? (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!settings[field.key]}
+                      onChange={(e) => setSettings({ ...settings, [field.key]: e.target.checked })}
+                      className="rounded border-border-light"
+                    />
+                    <span className="text-xs text-text-muted">{field.label}</span>
+                  </label>
+                ) : field.type === 'number' ? (
+                  <input
+                    type="number"
+                    value={settings[field.key] || ''}
+                    onChange={(e) => setSettings({ ...settings, [field.key]: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-sm bg-bg-muted border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                ) : (
+                  <input
+                    type={field.encrypted ? 'password' : 'text'}
+                    value={settings[field.key] || ''}
+                    onChange={(e) => setSettings({ ...settings, [field.key]: e.target.value })}
+                    placeholder={field.encrypted ? 'API key' : ''}
+                    className="w-full px-3 py-2 text-sm bg-bg-muted border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                )}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Add to canvas button */}
+      <div className="p-4 border-t border-border-light">
+        <button
+          onClick={handleAdd}
+          disabled={isSaving || (isCreating && !instanceName)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
+        >
+          {isSaving ? (
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          )}
+          Add to Canvas
+        </button>
+      </div>
     </div>
   );
 }

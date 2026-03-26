@@ -82,8 +82,17 @@ export class ApiController {
     }
 
     // Fallback: derive from request headers (for LAN access where IP varies)
-    const host = headers['host'] || headers['Host'] || 'localhost:3002';
+    let host = headers['host'] || headers['Host'] || 'localhost:3002';
     const protocol = headers['x-forwarded-proto'] || 'http';
+
+    // Ensure INKER_PORT is used when it's non-standard (handles Docker port mapping)
+    const inkerPort = this.configService.get<number>('inkerPort', 80);
+    if (inkerPort && inkerPort !== 80) {
+      // Strip any existing port from host and replace with INKER_PORT
+      const hostname = host.split(':')[0];
+      host = `${hostname}:${inkerPort}`;
+    }
+
     return `${protocol}://${host}`;
   }
 
@@ -400,7 +409,7 @@ export class ApiController {
    * Accepts log data from devices
    */
   @Post('log')
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.OK)
   @ApiHeader({
     name: 'HTTP_ID',
     description: 'Device API Key',

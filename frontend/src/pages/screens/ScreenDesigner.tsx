@@ -764,7 +764,10 @@ export function ScreenDesigner() {
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        <WidgetLibrary templates={templates} onDragStart={handleDragStart} />
+        <WidgetLibrary
+          templates={templates}
+          onDragStart={handleDragStart}
+        />
 
         <DesignCanvas
           ref={designCanvasRef}
@@ -789,6 +792,24 @@ export function ScreenDesigner() {
           onUpdateWidget={handleUpdateSelectedWidget}
           onDeleteWidget={handleDeleteSelectedWidget}
           onSelectWidget={setSelectedWidgetId}
+          onAddPluginToCanvas={(instanceId: number, pluginId: number, pluginSlug: string) => {
+            // Create a plugin widget on the canvas
+            const newWidget: ScreenWidget = {
+              id: nextWidgetId,
+              templateId: 20000 + pluginId,
+              x: 0,
+              y: 0,
+              width: design.width,
+              height: design.height,
+              rotation: 0,
+              config: { pluginInstanceId: instanceId, pluginId, pluginSlug, layout: 'full' },
+              zIndex: widgets.length,
+            };
+            setWidgets([...widgets, newWidget]);
+            setNextWidgetId(nextWidgetId - 1);
+            setHasChanges(true);
+            setSelectedWidgetId(newWidget.id);
+          }}
         />
       </div>
 

@@ -1,4 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
+import { EncryptionService } from './services/encryption.service';
 
-@Module({})
+@Global()
+@Module({
+  providers: [EncryptionService],
+  exports: [EncryptionService],
+})
 export class CommonModule {}

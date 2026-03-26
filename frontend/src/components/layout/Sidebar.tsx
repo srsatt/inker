@@ -1,5 +1,10 @@
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { version } from '../../../package.json';
+import { Modal } from '../common/Modal';
+import { dashboardService } from '../../services/api';
+import { useNotification } from '../../contexts/NotificationContext';
+import type { VersionCheck } from '../../types';
 
 interface NavItem {
   to: string;
@@ -7,12 +12,18 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-/**
- * Sidebar navigation component with monochrome theme and subtle accent
- * Uses CSS variables for easy theme customization
- */
 export function Sidebar() {
   const location = useLocation();
+  const [versionInfo, setVersionInfo] = useState<VersionCheck | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const notification = useNotification();
+
+  useEffect(() => {
+    dashboardService.checkForUpdate()
+      .then(setVersionInfo)
+      .catch(() => {});
+  }, []);
 
   const navItems: NavItem[] = [
     {
@@ -63,6 +74,19 @@ export function Sidebar() {
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"
+          />
+        </svg>
+      ),
+    },
+    {
+      to: '/plugins',
+      label: 'Plugins',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M21 7.5l-2.25-1.313M21 7.5v2.25m0-2.25l-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3l2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75l2.25-1.313M12 21.75V19.5m0 2.25l-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25"
           />
         </svg>
       ),
@@ -205,17 +229,122 @@ export function Sidebar() {
 
         {/* Footer with version info */}
         <div className="px-4 pb-4">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/5">
-            <div className="w-2 h-2 bg-status-success-dot rounded-full animate-pulse" />
+          <button
+            onClick={() => versionInfo?.updateAvailable && setShowUpdateModal(true)}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-white/5 transition-all duration-200 ${
+              versionInfo?.updateAvailable
+                ? 'cursor-pointer hover:bg-white/10 ring-1 ring-amber-400/30'
+                : 'cursor-default'
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full ${
+              versionInfo?.updateAvailable
+                ? 'bg-amber-400 animate-pulse'
+                : 'bg-status-success-dot animate-pulse'
+            }`} />
             <span className="text-xs text-sidebar-text-muted">
-              System Online
+              {versionInfo?.updateAvailable ? 'Update Available' : 'System Online'}
             </span>
-            <span className="ml-auto text-xs text-sidebar-text-muted">
+            <span className={`ml-auto text-xs ${
+              versionInfo?.updateAvailable
+                ? 'text-amber-400 font-medium'
+                : 'text-sidebar-text-muted'
+            }`}>
               {version}
             </span>
-          </div>
+            {versionInfo?.updateAvailable && (
+              <svg className="w-3 h-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Update Modal */}
+      <Modal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        title="Update Available"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-text-muted">Current version</span>
+            <span className="font-mono text-text-primary">{versionInfo?.currentVersion}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-text-muted">Latest version</span>
+            <span className="font-mono text-text-primary font-medium">{versionInfo?.latestVersion}</span>
+          </div>
+
+          <div className="border-t border-border-light pt-4 space-y-3">
+            {/* Copy commands button */}
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText('docker compose pull && docker compose up -d');
+                notification.success('Commands copied to clipboard');
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-text-primary text-sm font-medium transition-all duration-200"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+              </svg>
+              Copy Update Commands
+            </button>
+
+            {/* Auto-update button (only if Docker socket available) */}
+            {versionInfo?.dockerAvailable && (
+              <button
+                onClick={async () => {
+                  setUpdating(true);
+                  try {
+                    const result = await dashboardService.performUpdate();
+                    if (result.success) {
+                      notification.success(result.message);
+                      setShowUpdateModal(false);
+                    } else {
+                      notification.error(result.message);
+                    }
+                  } catch {
+                    notification.error('Update failed. Try updating manually.');
+                  } finally {
+                    setUpdating(false);
+                  }
+                }}
+                disabled={updating}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent/90 text-white text-sm font-medium transition-all duration-200 disabled:opacity-50"
+              >
+                {updating ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Update Now
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          <a
+            href={versionInfo?.releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-center text-xs text-text-muted hover:text-text-primary transition-colors"
+          >
+            View release notes
+          </a>
+        </div>
+      </Modal>
     </aside>
   );
 }

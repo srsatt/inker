@@ -24,6 +24,8 @@ import { Settings } from './pages/settings/Settings';
 import { DataSourceForm } from './pages/data-sources';
 import { CustomWidgetForm, CustomWidgetPreview } from './pages/custom-widgets';
 import { Extensions } from './pages/extensions';
+// Plugin pages
+import { PluginLibrary, InstalledPlugins, PluginCreator, PluginInstanceForm, OAuthCallback } from './pages/plugins';
 
 /**
  * Main App component with routing
@@ -184,6 +186,51 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Extensions />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* OAuth callback (handles redirect from providers) */}
+            <Route path="/plugins/oauth/callback" element={<OAuthCallback />} />
+
+            {/* Plugins */}
+            <Route
+              path="/plugins"
+              element={
+                <ProtectedRoute>
+                  <PluginLibrary />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/plugins/installed"
+              element={
+                <ProtectedRoute>
+                  <InstalledPlugins />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/plugins/create"
+              element={
+                <ProtectedRoute>
+                  <PluginCreator />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/plugins/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <PluginCreator />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/plugins/instances/:id"
+              element={
+                <ProtectedRoute>
+                  <PluginInstanceForm />
                 </ProtectedRoute>
               }
             />

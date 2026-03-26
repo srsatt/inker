@@ -327,7 +327,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
    * @param height - Original canvas height
    * @param negate - If true, invert colors (required for TRMNL e-ink devices)
    */
-  private async applyEinkProcessing(
+  async applyEinkProcessing(
     canvas: Sharp,
     width: number,
     height: number,
@@ -533,6 +533,9 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
 
       case 'custom-widget-base':
         return this.renderCustomWidget(width, height, widgetConfig);
+
+      case 'plugin':
+        return this.renderPluginWidget(width, height, widgetConfig);
 
       default:
         this.logger.warn(`Unknown widget type: ${template.name}`);
@@ -1810,8 +1813,8 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     }
 
     try {
-      // Fetch the custom widget with cached data (no external API fetch during render)
-      const preview = await this.customWidgetsService.getWithData(customWidgetId, true);
+      // Fetch the custom widget, refreshing stale data sources if needed
+      const preview = await this.customWidgetsService.getWithData(customWidgetId);
       const { widget, renderedContent } = preview;
       const widgetConfig = widget.config as Record<string, any>;
       const fieldType = widgetConfig.fieldType as string | undefined;
@@ -1836,6 +1839,121 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       return this.renderPlaceholderWidget(width, height, 'Error');
     }
   }
+
+  /**
+   * Render a plugin widget using the plugin's Liquid template.
+   * Settings come from the ScreenWidget config (not a separate PluginInstance).
+   */
+  private async renderPluginWidget(
+    width: number,
+    height: number,
+    config: Record<string, any>,
+  ): Promise<Buffer> {
+    const pluginId = config.pluginId as number | undefined;
+    if (!pluginId) {
+      return this.renderPlaceholderWidget(width, height, 'No plugin selected');
+    }
+
+    try {
+      const pluginRenderer = this.getPluginRenderer();
+      if (!pluginRenderer) {
+        return this.renderPlaceholderWidget(width, height, 'Plugin system unavailable');
+      }
+
+      const plugin = await this.prisma.plugin.findUnique({ where: { id: pluginId } });
+      if (!plugin) {
+        return this.renderPlaceholderWidget(width, height, 'Plugin not found');
+      }
+
+      const layout = this.inferPluginLayout(width, height, config.layout);
+      const markup = pluginRenderer.selectMarkup(plugin, layout);
+      if (!markup) {
+        return this.renderPlaceholderWidget(width, height, 'No template');
+      }
+
+      // Settings come from the widget config itself
+      const settings = config as Record<string, any>;
+      return pluginRenderer.renderToPng(markup, {}, settings, width, height, 'preview');
+    } catch (error) {
+      this.logger.error(`Failed to render plugin widget ${pluginId}:`, error);
+      return this.renderPlaceholderWidget(width, height, 'Plugin Error');
+    }
+  }
+
+  /**
+   * Generate plugin widget content as HTML for the designer preview
+   */
+  private async generatePluginWidgetContent(
+    config: Record<string, any>,
+    width: number,
+    height: number,
+  ): Promise<string> {
+    const pluginId = config.pluginId as number | undefined;
+    if (!pluginId) {
+      return '<div style="color:#999;font-size:12px;display:flex;align-items:center;justify-content:center;height:100%">Select a plugin</div>';
+    }
+
+    try {
+      const plugin = await this.prisma.plugin.findUnique({ where: { id: pluginId } });
+      if (!plugin) {
+        return '<div style="color:#999;font-size:12px">Plugin not found</div>';
+      }
+
+      const pluginRenderer = this.getPluginRenderer();
+      if (!pluginRenderer) {
+        return `<div style="font-size:12px;padding:8px"><strong>${plugin.name}</strong></div>`;
+      }
+
+      const layout = this.inferPluginLayout(width, height, config.layout);
+      const markup = pluginRenderer.selectMarkup(plugin, layout);
+      if (!markup) {
+        return `<div style="font-size:12px;padding:8px"><strong>${plugin.name}</strong><br/><span style="color:#999">No template</span></div>`;
+      }
+
+      const settings = config as Record<string, any>;
+      const html = await pluginRenderer.renderToHtml(markup, {}, settings);
+      return html;
+    } catch (error) {
+      return '<div style="color:#999;font-size:12px">Render error</div>';
+    }
+  }
+
+  /**
+   * Infer plugin layout from widget dimensions
+   */
+  private inferPluginLayout(
+    width: number,
+    height: number,
+    configLayout?: string,
+  ): 'full' | 'half_horizontal' | 'half_vertical' | 'quadrant' {
+    if (configLayout && ['full', 'half_horizontal', 'half_vertical', 'quadrant'].includes(configLayout)) {
+      return configLayout as any;
+    }
+    // Auto-detect from dimensions
+    if (width >= 600 && height >= 350) return 'full';
+    if (width >= 600) return 'half_vertical';
+    if (height >= 350) return 'half_horizontal';
+    return 'quadrant';
+  }
+
+  /**
+   * Get the PluginRendererService (lazy to avoid circular dependency)
+   */
+  private getPluginRenderer(): any {
+    try {
+      // Dynamic import to avoid circular module dependency
+      const { PluginRendererService } = require('../../plugins/plugin-renderer.service');
+      // Get from NestJS module context via prisma's connection
+      // Since we can't inject it, instantiate with this service
+      if (!this._pluginRenderer) {
+        this._pluginRenderer = new PluginRendererService(this as any);
+      }
+      return this._pluginRenderer;
+    } catch {
+      return null;
+    }
+  }
+  private _pluginRenderer: any = null;
 
   /**
    * Generate HTML that matches the frontend WidgetRenderer component exactly
@@ -2618,6 +2736,9 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
         content = await this.generateCustomWidgetContent(widgetConfig, width, height);
         extraStyles = this.getCustomWidgetStyles(widgetConfig);
         break;
+      case 'plugin':
+        content = await this.generatePluginWidgetContent(widgetConfig, width, height);
+        break;
       default:
         content = `<div style="color: #999; font-size: 12px;">Unknown: ${template.name}</div>`;
     }
@@ -3064,7 +3185,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     if (!customWidgetId) return '<div style="color: #999;">No widget ID</div>';
 
     try {
-      const result = await this.customWidgetsService.getWithData(customWidgetId, true);
+      const result = await this.customWidgetsService.getWithData(customWidgetId);
       const renderedContent = result.renderedContent;
       const widgetConfig = (result.widget?.config as Record<string, any>) || {};
 

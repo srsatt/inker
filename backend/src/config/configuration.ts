@@ -6,6 +6,8 @@ export const configuration = () => ({
     url: process.env.API_URL || `http://localhost:${process.env.PORT || '3002'}`,
   },
 
+  inkerPort: parseInt(process.env.INKER_PORT || '80', 10),
+
   database: {
     url: process.env.DATABASE_URL,
   },
@@ -32,6 +34,10 @@ export const configuration = () => ({
     screenPoller: {
       enabled: process.env.SCREEN_POLLER_ENABLED !== 'false',
       interval: parseInt(process.env.SCREEN_POLLER_INTERVAL || '900000', 10), // 15 minutes
+    },
+    pluginSync: {
+      enabled: process.env.PLUGIN_SYNC_ENABLED !== 'false',
+      interval: parseInt(process.env.PLUGIN_SYNC_INTERVAL || '604800000', 10), // 7 days
     },
   },
 
@@ -63,6 +69,36 @@ export const configuration = () => ({
 
   admin: {
     pin: process.env.ADMIN_PIN || '1111',
+  },
+
+  encryption: {
+    key: process.env.ENCRYPTION_KEY,
+  },
+
+  oauth: {
+    providers: {
+      google: {
+        clientId: process.env.OAUTH_GOOGLE_CLIENT_ID,
+        clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET,
+        authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+        tokenUrl: 'https://oauth2.googleapis.com/token',
+        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+      },
+      spotify: {
+        clientId: process.env.OAUTH_SPOTIFY_CLIENT_ID,
+        clientSecret: process.env.OAUTH_SPOTIFY_CLIENT_SECRET,
+        authUrl: 'https://accounts.spotify.com/authorize',
+        tokenUrl: 'https://accounts.spotify.com/api/token',
+        scopes: 'user-read-currently-playing user-read-recently-played',
+      },
+      strava: {
+        clientId: process.env.OAUTH_STRAVA_CLIENT_ID,
+        clientSecret: process.env.OAUTH_STRAVA_CLIENT_SECRET,
+        authUrl: 'https://www.strava.com/oauth/authorize',
+        tokenUrl: 'https://www.strava.com/oauth/token',
+        scopes: 'read,activity:read',
+      },
+    },
   },
 
   logging: {

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CustomWidgetsService } from '../../custom-widgets/custom-widgets.service';
+import { PluginsService } from '../../plugins/plugins.service';
 import { wrapListResponse } from '../../common/utils/response.util';
 
 /**
@@ -238,6 +239,19 @@ const DEFAULT_WIDGET_TEMPLATES = [
     minWidth: 100,
     minHeight: 50,
   },
+  // Plugin widget - renders a plugin instance inside the screen designer
+  {
+    name: 'plugin',
+    label: 'Plugin Widget',
+    description: 'Display a plugin instance as a widget',
+    category: 'plugins',
+    defaultConfig: {
+      pluginInstanceId: null,
+      layout: 'full',
+    },
+    minWidth: 200,
+    minHeight: 120,
+  },
   // Special base template for custom widgets - used as FK reference in database
   {
     name: 'custom-widget-base',
@@ -264,6 +278,7 @@ export class WidgetTemplatesService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private customWidgetsService: CustomWidgetsService,
+    private pluginsService: PluginsService,
   ) {}
 
   /**
@@ -293,8 +308,11 @@ export class WidgetTemplatesService implements OnModuleInit {
     // Get custom widgets as templates
     const customTemplates = await this.customWidgetsService.getAsWidgetTemplates();
 
-    // Combine built-in templates with custom widgets
-    const allTemplates = [...filteredTemplates, ...customTemplates];
+    // Get installed plugins as templates
+    const pluginTemplates = await this.pluginsService.getAsWidgetTemplates();
+
+    // Combine built-in templates with custom widgets and plugins
+    const allTemplates = [...filteredTemplates, ...customTemplates, ...pluginTemplates];
 
     return wrapListResponse(allTemplates);
   }

@@ -332,6 +332,15 @@ export interface DashboardStats {
   recentScreens: Screen[];
 }
 
+// Version check
+export interface VersionCheck {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  releaseUrl: string;
+  dockerAvailable: boolean;
+}
+
 // Notification types
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';
 
@@ -446,6 +455,44 @@ export interface GitHubWidgetConfig {
   showRepoName: boolean;
   fontSize: number;
   fontFamily: string;
+}
+
+// Plugin types
+export interface PluginSettingsField {
+  key: string;
+  label: string;
+  type: string; // text, select, multi_select, toggle, number, date
+  options?: string[];
+  required?: boolean;
+  encrypted?: boolean;
+  default?: string;
+}
+
+export interface Plugin {
+  id: number;
+  slug: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  category: string;
+  source: string;
+  isBuiltin: boolean;
+  settingsSchema?: PluginSettingsField[];
+  sourceUrl?: string;
+  _count?: { instances: number };
+}
+
+export interface PluginInstance {
+  id: number;
+  pluginId: number;
+  name?: string;
+  settings: Record<string, any>;
+  settingsEncrypted: Record<string, any>;
+  plugin: Plugin;
+  lastFetchedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Screen Design Form Data

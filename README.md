@@ -1,8 +1,10 @@
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/wojo_o)
 
-# Inker v0.2.1.1
+# Inker v0.3.0
 
-Self-hosted e-ink device management system for [TRMNL](https://usetrmnl.com/) devices and BYOD e-ink displays. Design screens, create custom widgets, and manage your displays from a modern web interface.
+Self-hosted e-ink device management server built for the homelab community. Works with [TRMNL](https://usetrmnl.com/) devices (supports firmware 1.7.8) and any BYOD e-ink display. Design screens, create custom widgets with live data from your local network, and manage your displays from a modern web interface.
+
+Inker is heading in its own direction — focusing on homelab integrations like server monitoring, smart home dashboards, network stats, and self-hosted service displays. TRMNL device compatibility is maintained, but the plugin ecosystem will be Inker-native.
 
 ![Dashboard](https://github.com/user-attachments/assets/fd9affac-5c57-4448-9338-ea8f83add08a)
 
@@ -11,9 +13,11 @@ Self-hosted e-ink device management system for [TRMNL](https://usetrmnl.com/) de
 - **Screen Designer** — Drag & drop widget placement, snap guides, freehand drawing, auto-fit zoom for any resolution
 - **Built-in Widgets** — Clock, date, text, weather, countdown, days until, QR code, image, GitHub stars, battery, WiFi, device info
 - **Custom Widgets** — Connect to any JSON API or RSS feed (including local network sources), JavaScript transformations, grid layouts
+- **Plugins** — Coming soon — homelab-native integrations for server monitoring, smart home, network stats
 - **Playlists** — Rotate multiple screens on devices automatically
-- **Device Management** — Auto-provisioning, BYOD support with custom resolutions, real-time status, logs
+- **Device Management** — Auto-provisioning, firmware 1.7.8 support, real-time status, logs
 - **BYOD Support** — Register any e-ink device manually with custom screen resolution
+- **Custom Ports** — Run on any port with Docker port mapping (e.g. `800:80`)
 
 ## Screenshots
 
@@ -100,6 +104,17 @@ git clone https://github.com/wojo-o/inker.git
 cd inker
 docker compose up -d --build
 ```
+
+## Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+All data (screens, devices, playlists, settings) is preserved — database schema updates are applied automatically on startup.
+
+> **Warning:** Never use `docker compose down -v` to update — the `-v` flag deletes all volumes and you will lose your data.
 
 ## Troubleshooting
 

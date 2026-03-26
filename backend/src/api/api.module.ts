@@ -10,12 +10,14 @@ import { LogService } from './log/log.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ScreenDesignerModule } from '../screen-designer/screen-designer.module';
 import { SettingsModule } from '../settings/settings.module';
+import { PluginsModule } from '../plugins/plugins.module';
 
 @Module({
   imports: [
     PrismaModule,
     ScreenDesignerModule,
     SettingsModule,
+    PluginsModule,
     // Serve static files from assets directory at /assets path
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'assets'),

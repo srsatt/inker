@@ -108,9 +108,12 @@ model PlaylistItem {
   duration       Int      @default(60) // seconds
   createdAt      DateTime @default(now()) @map("created_at")
 
+  pluginInstanceId Int?          @map("plugin_instance_id")
+
   playlist       Playlist         @relation(fields: [playlistId], references: [id], onDelete: Cascade)
   screen         Screen?          @relation(fields: [screenId], references: [id], onDelete: Cascade)
   screenDesign   ScreenDesign?    @relation(fields: [screenDesignId], references: [id], onDelete: Cascade)
+  pluginInstance PluginInstance?  @relation(fields: [pluginInstanceId], references: [id], onDelete: Cascade)
 
   @@map("playlist_items")
 }
@@ -293,4 +296,82 @@ model BlockedDevice {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("blocked_devices")
+}
+
+// ========================
+// Plugin System Models
+// ========================
+
+// Plugin - a reusable plugin definition (built-in from TRMNL or user-created)
+model Plugin {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  slug                 String   @unique
+  description          String?
+  icon                 String?  // emoji or image URL
+  category             String   @default("custom") // news, productivity, weather, social, finance, system, custom
+
+  // Data fetching configuration
+  dataStrategy         String   @default("polling") @map("data_strategy") // polling | webhook | static
+  dataUrl              String?  @map("data_url")     // supports {{setting}} interpolation
+  dataMethod           String   @default("GET") @map("data_method")
+  dataHeaders          Json?    @map("data_headers")  // supports {{setting}} interpolation
+  dataPath             String?  @map("data_path")     // JSONPath to extract from response
+  dataTransform        String?  @map("data_transform") // JS script to transform fetched data into locals
+  refreshInterval      Int      @default(300) @map("refresh_interval") // seconds
+
+  // Liquid templates for 4 layout sizes (matching TRMNL)
+  markupFull           String?  @map("markup_full")
+  markupHalfHorizontal String?  @map("markup_half_horizontal")
+  markupHalfVertical   String?  @map("markup_half_vertical")
+  markupQuadrant       String?  @map("markup_quadrant")
+
+  // Settings schema: [{key, label, type, options?, required?, encrypted?, default?}]
+  settingsSchema       Json?    @map("settings_schema")
+
+  // OAuth (for plugins that require OAuth2 authentication)
+  oauthProvider        String?  @map("oauth_provider")  // "google" | "spotify" | "strava" etc.
+  oauthScopes          String?  @map("oauth_scopes")    // space-separated scopes
+
+  // Metadata
+  isInstalled          Boolean  @default(false) @map("is_installed")
+  isBuiltin            Boolean  @default(false) @map("is_builtin")
+  source               String   @default("inker") // "inker" | "trmnl"
+  sourceUrl            String?  @map("source_url") // GitHub URL of original plugin
+  sourceHash           String?  @map("source_hash") // hash for detecting updates
+  version              String?
+
+  instances            PluginInstance[]
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("plugins")
+}
+
+// Plugin Instance - a configured instance of a plugin (with user settings and cached data)
+model PluginInstance {
+  id                   Int      @id @default(autoincrement())
+  pluginId             Int      @map("plugin_id")
+  name                 String?  // optional custom name for this instance
+
+  settings             Json     @default("{}") // user settings (non-sensitive)
+  settingsEncrypted    Json     @default("{}") @map("settings_encrypted") // encrypted settings (API keys)
+
+  // OAuth tokens (encrypted)
+  oauthToken           String?  @map("oauth_token")         // encrypted access token
+  oauthRefreshToken    String?  @map("oauth_refresh_token") // encrypted refresh token
+  oauthExpiresAt       DateTime? @map("oauth_expires_at")
+
+  // Cached data (the locals hash)
+  lastData             Json?    @map("last_data")
+  lastFetchedAt        DateTime? @map("last_fetched_at")
+  lastError            String?  @map("last_error")
+
+  plugin               Plugin   @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  playlistItems        PlaylistItem[]
+
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("plugin_instances")
 }
