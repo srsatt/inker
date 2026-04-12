@@ -103,28 +103,6 @@ export function AddDevice() {
           </h2>
 
           <div className="space-y-5">
-            {/* API URL Display */}
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">
-                Server URL for your device
-              </label>
-              <div className="flex items-center space-x-2">
-                <code className="flex-1 text-sm bg-bg-muted px-4 py-3 rounded-lg border border-border-default font-mono">
-                  {deviceApiUrl}
-                </code>
-                <button
-                  type="button"
-                  onClick={handleCopyUrl}
-                  className="inline-flex items-center justify-center px-3 py-1.5 text-sm font-semibold text-white rounded-xl transition-all duration-200"
-                  style={{ backgroundColor: copied ? '#22c55e' : '#3b82f6' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = copied ? '#16a34a' : '#2563eb'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = copied ? '#22c55e' : '#3b82f6'; }}
-                >
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-            </div>
-
             {/* Status Warning */}
             {!status.isOnline && (
               <div className="p-4 bg-status-warning-bg border border-status-warning-border rounded-lg">
@@ -161,16 +139,31 @@ export function AddDevice() {
                   </p>
                 </li>
                 <li>
-                  <strong>Enter the server URL</strong>
-                  <p className="ml-6 mt-1 text-text-muted">
-                    Paste: <code className="bg-bg-muted px-1 rounded">{deviceApiUrl}</code>
-                  </p>
-                </li>
-                <li>
                   <strong>Enter your WiFi credentials</strong>
                   <p className="ml-6 mt-1 text-text-muted">
                     Select your home/office WiFi and enter the password.
                   </p>
+                </li>
+                <li>
+                  <strong>Set the Server URL in Advanced Settings</strong>
+                  <p className="ml-6 mt-1 text-text-muted">
+                    Open <strong>Advanced Settings</strong> in the captive portal and paste this URL into the <strong>API Server</strong> field:
+                  </p>
+                  <div className="ml-6 mt-2 flex items-center space-x-2">
+                    <code className="flex-1 text-sm bg-bg-muted px-4 py-3 rounded-lg border border-border-default font-mono">
+                      {deviceApiUrl}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopyUrl}
+                      className="inline-flex items-center justify-center px-3 py-1.5 text-sm font-semibold text-white rounded-xl transition-all duration-200"
+                      style={{ backgroundColor: copied ? '#22c55e' : '#3b82f6' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = copied ? '#16a34a' : '#2563eb'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = copied ? '#22c55e' : '#3b82f6'; }}
+                    >
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
                 </li>
                 <li>
                   <strong>Done!</strong>

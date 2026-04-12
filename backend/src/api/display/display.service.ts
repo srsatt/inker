@@ -8,8 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { DefaultScreenService } from './default-screen.service';
 import { ScreenRendererService } from '../../screen-designer/services/screen-renderer.service';
 import { PluginsService } from '../../plugins/plugins.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { SetupService } from '../setup/setup.service';
 
 /**
  * Device metrics from headers
@@ -29,6 +28,7 @@ export class DisplayService {
     private defaultScreenService: DefaultScreenService,
     private screenRendererService: ScreenRendererService,
     private pluginsService: PluginsService,
+    private setupService: SetupService,
   ) {}
 
   /**
@@ -51,7 +51,7 @@ export class DisplayService {
     const apiUrl = baseUrl || this.config.get<string>('api.url', 'http://localhost:3002');
     // Find device by MAC address (id header) or API key (access-token header)
     // The Ruby version looks up by MAC address for better compatibility
-    const device = await this.prisma.device.findFirst({
+    let device = await this.prisma.device.findFirst({
       where: {
         OR: [
           { macAddress: macAddressOrApiKey },
@@ -90,24 +90,64 @@ export class DisplayService {
     });
 
     if (!device) {
-      // Return reset signal instead of 404 - tells device to factory reset
-      // Device will clear its API key and return to setup mode
-      // Include ALL expected fields so ArduinoJson on ESP32 doesn't fail parsing
-      this.logger.log(`Device not found for key ${macAddressOrApiKey} - sending factory reset signal`);
-      return {
-        status: 0,
-        image_url: '',
-        filename: '',
-        image_url_timeout: 0,
-        firmware_url: '',
-        update_firmware: false,
-        refresh_rate: 0,
-        reset_firmware: true,
-        special_function: '',
-        temperature_profile: 'default',
-        maximum_compatibility: false,
-        message: 'Device removed from server',
-      };
+      // Auto-provision unknown devices instead of factory resetting
+      // This handles devices connecting to a new/rebuilt server that still have
+      // a stored api_key — they skip /api/setup and call /api/display directly
+      const macRegex = /^([0-9A-Fa-f]{2}[:-]?){5}([0-9A-Fa-f]{2})$/;
+      const isBlocked = macRegex.test(macAddressOrApiKey) && await this.prisma.blockedDevice.findUnique({
+        where: { macAddress: macAddressOrApiKey },
+      });
+      if (macRegex.test(macAddressOrApiKey) && !isBlocked) {
+        this.logger.log(`Auto-provisioning unknown device with MAC ${macAddressOrApiKey}`);
+        try {
+          await this.setupService.provisionDevice(
+            macAddressOrApiKey,
+            firmwareVersion,
+            metrics,
+            baseUrl,
+          );
+          // Re-fetch the newly created device to continue with display logic
+          device = await this.prisma.device.findFirst({
+            where: { macAddress: macAddressOrApiKey },
+            include: {
+              model: true,
+              playlist: {
+                include: {
+                  items: {
+                    include: {
+                      screen: true,
+                      screenDesign: { include: { widgets: { include: { template: true } } } },
+                      pluginInstance: { include: { plugin: true } },
+                    },
+                    orderBy: { order: 'asc' },
+                  },
+                },
+              },
+            },
+          });
+        } catch (err) {
+          this.logger.error(`Auto-provision failed for ${macAddressOrApiKey}: ${err.message}`);
+        }
+      }
+
+      // If still not found after auto-provision attempt, send reset
+      if (!device) {
+        this.logger.log(`Device not found for key ${macAddressOrApiKey} - sending factory reset signal`);
+        return {
+          status: 0,
+          image_url: '',
+          filename: '',
+          image_url_timeout: 0,
+          firmware_url: '',
+          update_firmware: false,
+          refresh_rate: 0,
+          reset_firmware: true,
+          special_function: '',
+          temperature_profile: 'default',
+          maximum_compatibility: false,
+          message: 'Device removed from server',
+        };
+      }
     }
 
     // Check if device has a pending refresh (playlist just changed)
@@ -197,8 +237,12 @@ export class DisplayService {
       };
     }
 
-    // Get current screen from playlist rotation
-    const currentScreenResult = this.getCurrentScreen(device.playlist.items);
+    // Get current screen from playlist rotation (per-device tracking)
+    const currentScreenResult = this.getCurrentScreen(
+      device.playlist.items,
+      device.lastScreenId,
+      device.screenStartedAt,
+    );
 
     if (!currentScreenResult) {
       this.logger.log(`Device ${device.name} playlist has no valid screens - serving default screen`);
@@ -235,44 +279,50 @@ export class DisplayService {
       };
     }
 
-    const { item: currentScreen, remainingTime } = currentScreenResult;
+    const { item: currentScreen, screenChanged, idealStartTime } = currentScreenResult;
 
-    // Generate unique screen ID to detect screen changes
+    // Generate unique screen ID for tracking
     const currentScreenId = currentScreen.screenDesign
       ? `design-${currentScreen.screenDesign.id}`
       : currentScreen.screen
         ? `screen-${currentScreen.screen.id}`
-        : null;
+        : currentScreen.pluginInstance?.plugin
+          ? `plugin-${currentScreen.pluginInstance.id}`
+          : null;
 
-    // Detect screen change for ghosting prevention (full refresh on e-ink)
-    const screenChanged = currentScreenId && device.lastScreenId !== currentScreenId;
-    if (screenChanged) {
+    // Update screen tracking when screen changes
+    // screenStartedAt tracks when this screen began displaying (for duration-based rotation)
+    // maximum_compatibility = true forces full e-ink refresh to prevent ghosting artifacts
+    if (screenChanged && currentScreenId) {
       this.logger.debug(
         `Screen changed for device ${device.name}: ${device.lastScreenId} -> ${currentScreenId} (will trigger full refresh)`,
       );
-      // Update lastScreenId in database
       await this.prisma.device.update({
         where: { id: device.id },
-        data: { lastScreenId: currentScreenId },
+        data: { lastScreenId: currentScreenId, screenStartedAt: idealStartTime || new Date() },
       });
     }
 
-    // Calculate refresh rate based on current screen content and remaining playlist time
-    // Time-sensitive widgets (clock, countdown, date) get 60s refresh instead of device default
-    // But never exceed the remaining time for the current screen in the playlist
+    // For multi-screen playlists, cap refresh rate at current screen's duration
+    // so the device calls back in time for rotation
+    const screenDuration = currentScreen.duration || 60;
+    const effectiveDeviceRate = device.playlist.items.length > 1
+      ? Math.min(device.refreshRate, screenDuration)
+      : device.refreshRate;
+
+    // Calculate refresh rate based on current screen content
+    // Clock widgets get minute-synced refresh; otherwise uses device's configured rate
     const effectiveRefreshRate = this.getRefreshRateForScreen(
       currentScreen,
-      device.refreshRate,
+      effectiveDeviceRate,
       shouldRefreshImmediately,
-      remainingTime,
     );
 
     // Calculate the next refresh timestamp for minute-synchronized clock updates
     const nextRefreshAt = this.getNextRefreshTimestamp(
       currentScreen,
-      device.refreshRate,
+      effectiveDeviceRate,
       shouldRefreshImmediately,
-      remainingTime,
     );
 
     // Handle both regular screens and designed screens
@@ -298,63 +348,15 @@ export class DisplayService {
         reset_firmware: false,
         special_function: '',
         temperature_profile: 'default',
-        maximum_compatibility: false,
+        maximum_compatibility: screenChanged,
         refresh_at: nextRefreshAt,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
     } else if (currentScreen.screenDesign) {
-      // Designed screen - check for pre-captured pixel-perfect image first
-      const captureFilename = `capture_${currentScreen.screenDesign.id}.png`;
-      const capturePath = path.join(process.cwd(), 'uploads', 'captures', captureFilename);
-      const captureExists = fs.existsSync(capturePath);
-
+      // Designed screen - always render fresh via the render endpoint
+      // This ensures consistent URLs and up-to-date content for all widget types
       const timestamp = Date.now();
-
-      // Check if screen has dynamic widgets that need fresh rendering
-      // Dynamic widgets: clock, date, countdown, weather (change over time)
-      const dynamicTemplateNames = ['clock', 'date', 'countdown', 'weather'];
-      const hasDynamicWidgets = currentScreen.screenDesign.widgets?.some(
-        (widget: { template?: { name?: string } }) =>
-          widget.template?.name && dynamicTemplateNames.includes(widget.template.name)
-      );
-
-      if (captureExists && !hasDynamicWidgets) {
-        // USE CAPTURE FILE - exact pixels from designer (pixel-perfect)
-        // Only for static screens without dynamic widgets
-        const captureUrl = `${apiUrl}/uploads/captures/${captureFilename}?t=${timestamp}`;
-        const dynamicFilename = `capture-${currentScreen.screenDesign.id}-${timestamp}.png`;
-
-        this.logger.debug(
-          `Serving CAPTURED screen "${currentScreen.screenDesign.name}" to device ${device.name} (pixel-perfect, refresh: ${effectiveRefreshRate}s)`,
-        );
-
-        return {
-          status: 0,
-          image_url: captureUrl,
-          filename: dynamicFilename,
-          image_url_timeout: 0,
-          image_data: undefined,
-          firmware_url: firmwareUrl,
-          update_firmware: !!firmwareUrl,
-          refresh_rate: effectiveRefreshRate,
-          reset_firmware: false,
-          special_function: '',
-          temperature_profile: 'default',
-          maximum_compatibility: false,
-          refresh_at: nextRefreshAt,
-          battery: updatedDevice.battery,
-          wifi: updatedDevice.wifi,
-        };
-      }
-
-      // RENDER FRESH: No capture, has dynamic widgets, or needs current time
-      // Dynamic widgets (clock, countdown, weather) must be rendered fresh each time
-      if (hasDynamicWidgets) {
-        this.logger.debug(
-          `Screen "${currentScreen.screenDesign.name}" has dynamic widgets - rendering fresh`,
-        );
-      }
 
       const queryParams = new URLSearchParams({
         t: timestamp.toString(),
@@ -374,7 +376,7 @@ export class DisplayService {
       const dynamicFilename = `design-${currentScreen.screenDesign.id}-${timestamp}.png`;
 
       this.logger.debug(
-        `Serving RENDERED screen "${currentScreen.screenDesign.name}" to device ${device.name} (no capture, refresh: ${effectiveRefreshRate}s, next_at: ${nextRefreshAt ? new Date(nextRefreshAt).toISOString() : 'N/A'})`,
+        `Serving screen "${currentScreen.screenDesign.name}" to device ${device.name} (refresh: ${effectiveRefreshRate}s, next_at: ${nextRefreshAt ? new Date(nextRefreshAt).toISOString() : 'N/A'})`,
       );
 
       return {
@@ -389,7 +391,7 @@ export class DisplayService {
         reset_firmware: false,
         special_function: '',
         temperature_profile: 'default',
-        maximum_compatibility: false,
+        maximum_compatibility: screenChanged,
         refresh_at: nextRefreshAt,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
@@ -418,7 +420,7 @@ export class DisplayService {
         reset_firmware: false,
         special_function: '',
         temperature_profile: 'default',
-        maximum_compatibility: false,
+        maximum_compatibility: screenChanged,
         refresh_at: nextRefreshAt,
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
@@ -451,57 +453,65 @@ export class DisplayService {
   }
 
   /**
-   * Get current screen from playlist items using simple rotation
+   * Get current screen from playlist items using per-device rotation
    *
-   * Returns: { item, remainingTime } - the current playlist item and seconds until it should rotate
+   * Each device tracks which screen it's showing and when it started.
+   * When the screen's duration expires, it advances to the next screen.
+   * This ensures each screen shows for exactly its configured duration.
    */
-  private getCurrentScreen(items: any[]): { item: any; remainingTime: number } | null {
+  private getCurrentScreen(
+    items: any[],
+    lastScreenId: string | null,
+    screenStartedAt: Date | null,
+  ): { item: any; screenChanged: boolean; idealStartTime?: Date } | null {
     if (!items || items.length === 0) {
       return null;
     }
 
-    // SINGLE SCREEN: Respect duration for refresh timing
+    // SINGLE SCREEN: No rotation needed
     if (items.length === 1) {
-      const itemDuration = items[0].duration || 60;
-
-      // Duration 0 = never refresh (static content, save battery)
-      if (itemDuration === 0) {
-        return { item: items[0], remainingTime: Infinity };
-      }
-
-      // Calculate remaining time in current cycle based on duration
-      const currentSecond = Math.floor(Date.now() / 1000);
-      const remainingTime = itemDuration - (currentSecond % itemDuration);
-      return { item: items[0], remainingTime };
+      return { item: items[0], screenChanged: false };
     }
 
-    // Multiple screens: rotation based on current time
-    // Each screen shows for its duration, then rotates to next
-    const totalDuration = items.reduce((sum, item) => sum + (item.duration || 60), 0);
+    // Find the screen ID for a playlist item
+    const getItemScreenId = (item: any): string | null =>
+      item.screenDesign ? `design-${item.screenDesign.id}`
+        : item.screen ? `screen-${item.screen.id}`
+        : item.pluginInstance?.plugin ? `plugin-${item.pluginInstance.id}`
+        : null;
 
-    // Guard against division by zero (shouldn't happen, but defensive)
-    if (totalDuration <= 0) {
-      const firstItemDuration = items[0].duration || 60;
-      return { item: items[0], remainingTime: firstItemDuration };
+    // Find the current item by lastScreenId
+    let currentIndex = -1;
+    if (lastScreenId) {
+      currentIndex = items.findIndex(item => getItemScreenId(item) === lastScreenId);
     }
 
-    const currentSecond = Math.floor(Date.now() / 1000);
-    const positionInCycle = currentSecond % totalDuration;
-
-    let elapsed = 0;
-    for (const item of items) {
-      const itemDuration = item.duration || 60;
-      elapsed += itemDuration;
-      if (positionInCycle < elapsed) {
-        // Calculate remaining time for this screen
-        const remainingTime = elapsed - positionInCycle;
-        return { item, remainingTime };
-      }
+    // If no previous screen or it's no longer in the playlist, start at first item
+    if (currentIndex === -1) {
+      return { item: items[0], screenChanged: true };
     }
 
-    // Fallback to first item
-    const firstItemDuration = items[0].duration || 60;
-    return { item: items[0], remainingTime: firstItemDuration };
+    // Check if the current screen's duration has expired
+    const currentItem = items[currentIndex];
+    const duration = currentItem.duration || 60;
+
+    // If screenStartedAt is null (e.g. existing device before migration),
+    // treat as screen change so the timestamp gets initialized
+    if (!screenStartedAt) {
+      return { item: currentItem, screenChanged: true };
+    }
+
+    const elapsedSeconds = (Date.now() - screenStartedAt.getTime()) / 1000;
+    if (elapsedSeconds >= duration) {
+      // Duration expired — advance to next screen
+      // Use ideal start time (previous start + duration) to prevent drift accumulation
+      const nextIndex = (currentIndex + 1) % items.length;
+      const idealStartTime = new Date(screenStartedAt.getTime() + duration * 1000);
+      return { item: items[nextIndex], screenChanged: true, idealStartTime };
+    }
+
+    // Duration not expired — keep showing current screen
+    return { item: currentItem, screenChanged: false };
   }
 
   /**
@@ -559,25 +569,6 @@ export class DisplayService {
   }
 
   /**
-   * Check if a screen design contains time-sensitive widgets (clock, countdown, date)
-   * These widgets require more frequent refresh to stay accurate
-   */
-  private hasTimeSensitiveWidgets(screenDesign: any): boolean {
-    if (!screenDesign?.widgets || !Array.isArray(screenDesign.widgets)) {
-      return false;
-    }
-
-    // Widget template names that are time-sensitive and need frequent refresh
-    const timeSensitiveWidgets = ['clock', 'countdown', 'date'];
-
-    return screenDesign.widgets.some(
-      (widget: any) =>
-        widget.template &&
-        timeSensitiveWidgets.includes(widget.template.name),
-    );
-  }
-
-  /**
    * Check if a screen design contains a clock widget
    */
   private hasClockWidget(screenDesign: any): boolean {
@@ -591,16 +582,14 @@ export class DisplayService {
   }
 
   /**
-   * Get the appropriate refresh rate based on screen content and playlist rotation
+   * Get the appropriate refresh rate based on screen content
    * For clock widgets, returns the exact seconds until next minute boundary
    * This ensures the device wakes up exactly when the minute changes
-   * BUT never exceeds the remaining time for the current screen in the playlist
    */
   private getRefreshRateForScreen(
     currentScreen: any,
     deviceRefreshRate: number,
     shouldRefreshImmediately: boolean,
-    remainingTime: number,
   ): number {
     // If refresh is pending, return 1 second to force immediate update
     if (shouldRefreshImmediately) {
@@ -629,21 +618,11 @@ export class DisplayService {
       this.logger.debug(
         `Clock widget - calculated refresh ${refreshRate}s (${secondsUntilNextMinute}s until minute + ${bufferSeconds}s buffer)`,
       );
-    } else if (currentScreen?.screenDesign && this.hasTimeSensitiveWidgets(currentScreen.screenDesign)) {
-      // For other time-sensitive widgets (date, countdown), use 60 second refresh
-      refreshRate = 60;
-      this.logger.debug(
-        `Screen design "${currentScreen.screenDesign.name}" has time-sensitive widgets - using 60s refresh`,
-      );
     }
 
-    // IMPORTANT: Cap refresh rate by remaining time in playlist rotation
-    // This ensures screens rotate according to their duration in the playlist
-    if (remainingTime > 0 && remainingTime < refreshRate) {
-      this.logger.debug(
-        `Capping refresh rate from ${refreshRate}s to ${remainingTime}s (playlist rotation)`,
-      );
-      refreshRate = remainingTime;
+    // Floor: never go below 10 seconds to prevent rapid polling from edge cases
+    if (refreshRate < 10) {
+      refreshRate = 10;
     }
 
     return refreshRate;
@@ -653,13 +632,11 @@ export class DisplayService {
    * Calculate the exact timestamp when the device should refresh next
    * For clock widgets, this is synchronized to the next minute boundary
    * This ensures the clock updates exactly when the minute changes (e.g., 20:00 -> 20:01)
-   * BUT never exceeds the remaining time for the current screen in the playlist
    */
   getNextRefreshTimestamp(
     currentScreen: any,
     deviceRefreshRate: number,
     shouldRefreshImmediately: boolean,
-    remainingTime: number,
   ): number | null {
     // If refresh is pending, refresh immediately
     if (shouldRefreshImmediately) {
@@ -684,18 +661,6 @@ export class DisplayService {
       this.logger.debug(
         `Clock widget detected - calculated refresh in ${Math.round(refreshMs / 1000)}s (after minute boundary)`,
       );
-    } else if (currentScreen?.screenDesign && this.hasTimeSensitiveWidgets(currentScreen.screenDesign)) {
-      // For other time-sensitive widgets, use 60 second intervals
-      refreshMs = 60 * 1000;
-    }
-
-    // IMPORTANT: Cap by remaining time in playlist rotation
-    const remainingTimeMs = remainingTime * 1000;
-    if (remainingTimeMs > 0 && remainingTimeMs < refreshMs) {
-      this.logger.debug(
-        `Capping next refresh timestamp from ${Math.round(refreshMs / 1000)}s to ${remainingTime}s (playlist rotation)`,
-      );
-      refreshMs = remainingTimeMs;
     }
 
     return Date.now() + refreshMs;
@@ -748,8 +713,12 @@ export class DisplayService {
       return this.defaultScreenService.getDefaultScreenPreviewBuffer();
     }
 
-    // Get current screen from playlist rotation
-    const currentScreenResult = this.getCurrentScreen(device.playlist.items);
+    // Get current screen from playlist rotation (preview uses device state too)
+    const currentScreenResult = this.getCurrentScreen(
+      device.playlist.items,
+      device.lastScreenId,
+      device.screenStartedAt,
+    );
 
     if (!currentScreenResult) {
       return this.defaultScreenService.getDefaultScreenPreviewBuffer();

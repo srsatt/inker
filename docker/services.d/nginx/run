@@ -1,2 +1,9 @@
 #!/command/with-contenv sh
+# Wait for backend to be ready before accepting connections
+# Prevents 502 errors when devices connect during startup
+echo "[nginx] Waiting for backend..."
+until bun -e "const r=await fetch('http://127.0.0.1:3002/health');process.exit(r.ok?0:1)" 2>/dev/null; do
+    sleep 1
+done
+echo "[nginx] Backend is ready, starting nginx"
 exec nginx -g "daemon off;"

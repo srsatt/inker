@@ -32,84 +32,75 @@ describe('DisplayService', () => {
   });
 
   describe('getCurrentScreen (private)', () => {
-    const getCurrentScreen = (items: any[]) =>
-      (service as any).getCurrentScreen(items);
+    const getCurrentScreen = (items: any[], lastScreenId: string | null = null, screenStartedAt: Date | null = null) =>
+      (service as any).getCurrentScreen(items, lastScreenId, screenStartedAt);
 
     it('should return null for empty items', () => {
-      expect(getCurrentScreen([])).toBeNull();
-      expect(getCurrentScreen(null)).toBeNull();
+      expect(getCurrentScreen([], null, null)).toBeNull();
+      expect(getCurrentScreen(null as any, null, null)).toBeNull();
     });
 
-    it('should default duration to 60 when duration is 0 (falsy)', () => {
-      // duration 0 is falsy, so `item.duration || 60` defaults to 60
-      const items = [{ id: 1, duration: 0 }];
-      const result = getCurrentScreen(items);
-      expect(result.item.id).toBe(1);
-      expect(result.remainingTime).toBeGreaterThan(0);
-      expect(result.remainingTime).toBeLessThanOrEqual(60);
-    });
-
-    it('should return single item with calculated remaining time', () => {
+    it('should return single item without screen change', () => {
       const items = [{ id: 1, duration: 60 }];
       const result = getCurrentScreen(items);
       expect(result.item.id).toBe(1);
-      expect(result.remainingTime).toBeGreaterThan(0);
-      expect(result.remainingTime).toBeLessThanOrEqual(60);
+      expect(result.screenChanged).toBe(false);
     });
 
-    it('should default duration to 60 when not set', () => {
-      const items = [{ id: 1 }];
-      const result = getCurrentScreen(items);
-      expect(result.item.id).toBe(1);
-      expect(result.remainingTime).toBeGreaterThan(0);
-      expect(result.remainingTime).toBeLessThanOrEqual(60);
-    });
-
-    it('should rotate through multiple screens based on time', () => {
+    it('should start at first item when no previous screen', () => {
       const items = [
-        { id: 1, duration: 30 },
-        { id: 2, duration: 30 },
+        { id: 1, screenDesign: { id: 1 }, duration: 300 },
+        { id: 2, screenDesign: { id: 2 }, duration: 60 },
       ];
-      const result = getCurrentScreen(items);
-      expect(result).not.toBeNull();
-      expect([1, 2]).toContain(result.item.id);
-      expect(result.remainingTime).toBeGreaterThan(0);
-      expect(result.remainingTime).toBeLessThanOrEqual(30);
-    });
-  });
-
-  describe('hasTimeSensitiveWidgets (private)', () => {
-    const hasTimeSensitive = (design: any) =>
-      (service as any).hasTimeSensitiveWidgets(design);
-
-    it('should return false for null/empty design', () => {
-      expect(hasTimeSensitive(null)).toBe(false);
-      expect(hasTimeSensitive({})).toBe(false);
-      expect(hasTimeSensitive({ widgets: [] })).toBe(false);
+      const result = getCurrentScreen(items, null, null);
+      expect(result.item.id).toBe(1);
+      expect(result.screenChanged).toBe(true);
     });
 
-    it('should return true for clock widget', () => {
-      expect(hasTimeSensitive({
-        widgets: [{ template: { name: 'clock' } }],
-      })).toBe(true);
+    it('should keep current screen when duration not expired', () => {
+      const items = [
+        { id: 1, screenDesign: { id: 1 }, duration: 300 },
+        { id: 2, screenDesign: { id: 2 }, duration: 60 },
+      ];
+      // Screen started 100 seconds ago, duration is 300
+      const startedAt = new Date(Date.now() - 100_000);
+      const result = getCurrentScreen(items, 'design-1', startedAt);
+      expect(result.item.id).toBe(1);
+      expect(result.screenChanged).toBe(false);
     });
 
-    it('should return true for countdown widget', () => {
-      expect(hasTimeSensitive({
-        widgets: [{ template: { name: 'countdown' } }],
-      })).toBe(true);
+    it('should advance to next screen when duration expired', () => {
+      const items = [
+        { id: 1, screenDesign: { id: 1 }, duration: 300 },
+        { id: 2, screenDesign: { id: 2 }, duration: 60 },
+      ];
+      // Screen started 301 seconds ago, duration is 300
+      const startedAt = new Date(Date.now() - 301_000);
+      const result = getCurrentScreen(items, 'design-1', startedAt);
+      expect(result.item.id).toBe(2);
+      expect(result.screenChanged).toBe(true);
     });
 
-    it('should return true for date widget', () => {
-      expect(hasTimeSensitive({
-        widgets: [{ template: { name: 'date' } }],
-      })).toBe(true);
+    it('should wrap around to first screen after last', () => {
+      const items = [
+        { id: 1, screenDesign: { id: 1 }, duration: 300 },
+        { id: 2, screenDesign: { id: 2 }, duration: 60 },
+      ];
+      // On screen 2, duration expired
+      const startedAt = new Date(Date.now() - 61_000);
+      const result = getCurrentScreen(items, 'design-2', startedAt);
+      expect(result.item.id).toBe(1);
+      expect(result.screenChanged).toBe(true);
     });
 
-    it('should return false for non-time widgets', () => {
-      expect(hasTimeSensitive({
-        widgets: [{ template: { name: 'text' } }, { template: { name: 'weather' } }],
-      })).toBe(false);
+    it('should start at first item when lastScreenId not found in playlist', () => {
+      const items = [
+        { id: 1, screenDesign: { id: 1 }, duration: 300 },
+        { id: 2, screenDesign: { id: 2 }, duration: 60 },
+      ];
+      const result = getCurrentScreen(items, 'design-99', new Date());
+      expect(result.item.id).toBe(1);
+      expect(result.screenChanged).toBe(true);
     });
   });
 
@@ -131,59 +122,56 @@ describe('DisplayService', () => {
   });
 
   describe('getRefreshRateForScreen (private)', () => {
-    const getRate = (screen: any, deviceRate: number, immediate: boolean, remaining: number) =>
-      (service as any).getRefreshRateForScreen(screen, deviceRate, immediate, remaining);
+    const getRate = (screen: any, deviceRate: number, immediate: boolean) =>
+      (service as any).getRefreshRateForScreen(screen, deviceRate, immediate);
 
     it('should return 1 when shouldRefreshImmediately is true', () => {
-      expect(getRate({}, 900, true, 60)).toBe(1);
+      expect(getRate({}, 900, true)).toBe(1);
     });
 
     it('should return device refresh rate for normal screens', () => {
       const screen = { screenDesign: { widgets: [{ template: { name: 'text' } }] } };
-      expect(getRate(screen, 900, false, 1000)).toBe(900);
+      expect(getRate(screen, 900, false)).toBe(900);
     });
 
-    it('should return 60 for time-sensitive (non-clock) widgets', () => {
+    it('should return device refresh rate for countdown widgets (no override)', () => {
       const screen = { screenDesign: { widgets: [{ template: { name: 'countdown' } }] } };
-      expect(getRate(screen, 900, false, 1000)).toBe(60);
+      expect(getRate(screen, 900, false)).toBe(900);
+    });
+
+    it('should return device refresh rate for date widgets (not time-sensitive)', () => {
+      const screen = { screenDesign: { widgets: [{ template: { name: 'date' } }] } };
+      expect(getRate(screen, 900, false)).toBe(900);
     });
 
     it('should calculate clock refresh based on seconds until next minute', () => {
       const screen = { screenDesign: { widgets: [{ template: { name: 'clock' } }] } };
-      const rate = getRate(screen, 900, false, 1000);
-      // Should be between 4 (0 seconds into minute + 3 buffer) and 63 (59 seconds + 3 + cap)
+      const rate = getRate(screen, 900, false);
       expect(rate).toBeGreaterThanOrEqual(4);
       expect(rate).toBeLessThanOrEqual(63);
     });
 
-    it('should cap at remaining time when remaining is smaller', () => {
+    it('should enforce 10 second floor', () => {
       const screen = { screenDesign: { widgets: [{ template: { name: 'text' } }] } };
-      expect(getRate(screen, 900, false, 30)).toBe(30);
+      expect(getRate(screen, 5, false)).toBe(10);
     });
   });
 
   describe('getNextRefreshTimestamp', () => {
     it('should return ~1 second from now when immediate', () => {
       const screen = {};
-      const ts = service.getNextRefreshTimestamp(screen, 900, true, 60);
+      const ts = service.getNextRefreshTimestamp(screen, 900, true);
       expect(ts).not.toBeNull();
       expect(ts! - Date.now()).toBeLessThanOrEqual(2000);
     });
 
     it('should return device refresh rate ms from now for normal screens', () => {
       const screen = { screenDesign: { widgets: [{ template: { name: 'text' } }] } };
-      const ts = service.getNextRefreshTimestamp(screen, 900, false, 1000);
+      const ts = service.getNextRefreshTimestamp(screen, 900, false);
       const diff = ts! - Date.now();
       // Should be approximately 900 seconds from now
       expect(diff).toBeGreaterThan(899000);
       expect(diff).toBeLessThan(901000);
-    });
-
-    it('should cap by remaining time', () => {
-      const screen = { screenDesign: { widgets: [{ template: { name: 'text' } }] } };
-      const ts = service.getNextRefreshTimestamp(screen, 900, false, 30);
-      const diff = ts! - Date.now();
-      expect(diff).toBeLessThanOrEqual(31000);
     });
   });
 

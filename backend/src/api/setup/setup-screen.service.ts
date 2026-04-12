@@ -88,8 +88,7 @@ export class SetupScreenService implements OnModuleInit {
       await sharp(dithered, {
         raw: { width: grayBuffer.info.width, height: grayBuffer.info.height, channels: 1 },
       })
-        .negate()
-        .png({ compressionLevel: 9, palette: true, colours: 2 })
+        .png({ compressionLevel: 9 })
         .toFile(this.setupScreenPath);
 
       this.logger.log(`Setup screen saved to: ${this.setupScreenPath}`);

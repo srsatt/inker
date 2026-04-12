@@ -211,7 +211,7 @@ export class ApiController {
     // Parse RSSI to integer
     const wifi = rssiStr ? parseInt(rssiStr, 10) : undefined;
 
-    this.logger.debug(`[DISPLAY] Extracted deviceApiKey: ${deviceApiKey}, battery: ${battery}%, wifi: ${wifi} dBm, fw: ${firmwareVersion}`);
+    this.logger.debug(`[DISPLAY] Extracted deviceApiKey: ${deviceApiKey}, battery: ${batteryVoltageStr}V → ${battery}%, wifi: ${wifi} dBm, fw: ${firmwareVersion}`);
 
     if (!deviceApiKey) {
       this.logger.error(`[DISPLAY] Missing HTTP_ID header. All headers: ${this.sanitizeHeaders(headers)}`);
@@ -497,7 +497,7 @@ export class ApiController {
    * Using linear approximation for simplicity
    */
   private voltageToPercentage(voltage: number): number {
-    const minVoltage = 3.5;  // 0% battery - device low-voltage cutoff
+    const minVoltage = 3.0;  // 0% battery - LiPo low-voltage cutoff
     const maxVoltage = 4.2;  // 100% battery
 
     if (voltage >= maxVoltage) return 100;

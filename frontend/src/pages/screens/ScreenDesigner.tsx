@@ -22,12 +22,6 @@ const CUSTOM_WIDGET_TEMPLATE_OFFSET = 10000;
 const RESOLUTION_PRESETS = [
   { label: 'TRMNL Standard', width: 800, height: 480, description: '800 x 480 px (landscape)' },
   { label: 'TRMNL Portrait', width: 480, height: 800, description: '480 x 800 px (portrait)' },
-  { label: 'Small Display', width: 400, height: 300, description: '400 x 300 px' },
-  { label: 'Medium Display', width: 640, height: 384, description: '640 x 384 px' },
-  { label: 'Large Display', width: 1024, height: 758, description: '1024 x 758 px' },
-  { label: 'E-Paper 2.9"', width: 296, height: 128, description: '296 x 128 px' },
-  { label: 'E-Paper 4.2"', width: 400, height: 300, description: '400 x 300 px' },
-  { label: 'E-Paper 7.5"', width: 800, height: 480, description: '800 x 480 px' },
 ];
 
 export function ScreenDesigner() {

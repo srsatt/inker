@@ -95,8 +95,8 @@ export class DefaultScreenService implements OnModuleInit {
       const welcomeConfig = await this.settingsService.getWelcomeScreenConfig();
       const svg = this.createDefaultScreenSvg(width, height, welcomeConfig.title, welcomeConfig.subtitle);
 
-      // Convert SVG to e-ink optimized 1-bit PNG (same pipeline as designed screens)
-      // TRMNL OG firmware requires dithered, negated, 1-bit palette PNG
+      // Convert SVG to e-ink optimized grayscale PNG (same pipeline as designed screens)
+      // Standard 8-bit grayscale — firmware handles display color mapping
       const grayBuffer = await sharp(Buffer.from(svg))
         .grayscale()
         .normalise()
@@ -110,8 +110,7 @@ export class DefaultScreenService implements OnModuleInit {
       await sharp(dithered, {
         raw: { width: grayBuffer.info.width, height: grayBuffer.info.height, channels: 1 },
       })
-        .negate()
-        .png({ compressionLevel: 9, palette: true, colours: 2 })
+        .png({ compressionLevel: 9 })
         .toFile(this.defaultScreenPath);
 
       this.logger.log(`Default screen saved to: ${this.defaultScreenPath}`);
@@ -255,8 +254,7 @@ export class DefaultScreenService implements OnModuleInit {
     await sharp(dithered, {
       raw: { width: grayBuffer.info.width, height: grayBuffer.info.height, channels: 1 },
     })
-      .negate()
-      .png({ compressionLevel: 9, palette: true, colours: 2 })
+      .png({ compressionLevel: 9 })
       .toFile(outputPath);
 
     return outputPath;
@@ -319,14 +317,12 @@ export class DefaultScreenService implements OnModuleInit {
   }
 
   /**
-   * Get the default screen as a buffer for browser preview (un-negated)
-   * The on-disk PNG is negated for e-ink devices, so we negate it back for display
+   * Get the default screen as a buffer for browser preview
    */
   async getDefaultScreenPreviewBuffer(): Promise<Buffer> {
     await this.ensureDefaultScreenExists();
 
     return sharp(this.defaultScreenPath)
-      .negate()
       .png()
       .toBuffer();
   }

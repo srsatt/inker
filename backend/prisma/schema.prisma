@@ -32,6 +32,7 @@ model Device {
   lastSeenAt      DateTime? @map("last_seen_at")
   refreshPending  Boolean   @default(false) @map("refresh_pending")
   lastScreenId    String?   @map("last_screen_id") // Track last displayed screen for ghosting prevention
+  screenStartedAt DateTime? @map("screen_started_at") // When the current screen started displaying
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

@@ -677,7 +677,7 @@ export class ScreenDesignerController {
           output[i] = Math.max(0, Math.min(255, Math.round(pixels[i])));
         }
 
-        // Create 1-bit PNG using palette mode (black and white only)
+        // Create grayscale PNG (dithered to black/white values)
         buffer = await sharp(output, {
           raw: {
             width: info.width,
@@ -685,11 +685,7 @@ export class ScreenDesignerController {
             channels: 1,
           },
         })
-          .png({
-            compressionLevel: 9,
-            palette: true,
-            colours: 2, // 1-bit: 2 colors (black/white)
-          })
+          .png({ compressionLevel: 9 })
           .toBuffer();
 
         attempts++;

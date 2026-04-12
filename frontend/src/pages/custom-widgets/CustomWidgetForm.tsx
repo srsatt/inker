@@ -1504,7 +1504,7 @@ export function CustomWidgetForm() {
                     </code>
                     <div className="flex items-center gap-1">
                       {field.isImageUrl && (
-                        <span className="text-pink-500 text-xs">🖼️</span>
+                        <span className="text-pink-500 text-xs font-bold">IMG</span>
                       )}
                       {field.isLink && !field.isImageUrl && (
                         <span className="text-accent text-xs">🔗</span>

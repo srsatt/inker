@@ -157,7 +157,7 @@ export class SetupService {
     const setupScreenUrl = this.setupScreenService.getSetupScreenUrl();
 
     return {
-      status: 200,                      // TRMNL firmware expects status field
+      status: 200,                      // Firmware 1.7.8 setup parser checks status == 200
       api_key: device.apiKey,           // CRITICAL: Must be 'api_key' not 'uuid'
       friendly_id: device.friendlyId,   // Friendly name for the device
       image_url: `${apiUrl}${setupScreenUrl}`,  // Setup screen image

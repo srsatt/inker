@@ -348,26 +348,16 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     // Apply Floyd-Steinberg dithering
     const ditheredBuffer = this.applyFloydSteinbergDithering(data, info.width, info.height, threshold);
 
-    // Create 1-bit PNG
-    let sharpInstance = sharp(ditheredBuffer, {
+    // Output as standard 8-bit grayscale PNG (no palette mode)
+    // Firmware 1.7.8 handles display color mapping — palette PNGs cause scrambled display
+    let buffer = await sharp(ditheredBuffer, {
       raw: {
         width: info.width,
         height: info.height,
         channels: 1,
       },
-    });
-
-    // Apply negate for device mode (TRMNL expects inverted colors)
-    if (negate) {
-      sharpInstance = sharpInstance.negate();
-    }
-
-    let buffer = await sharpInstance
-      .png({
-        compressionLevel: 9,
-        palette: true,
-        colours: 2,
-      })
+    })
+      .png({ compressionLevel: 9 })
       .toBuffer();
 
     // If still too large, scale down and re-dither
@@ -399,29 +389,19 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
         threshold,
       );
 
-      let scaledSharp = sharp(scaledDithered, {
+      buffer = await sharp(scaledDithered, {
         raw: {
           width: scaledGray.info.width,
           height: scaledGray.info.height,
           channels: 1,
         },
-      });
-
-      if (negate) {
-        scaledSharp = scaledSharp.negate();
-      }
-
-      buffer = await scaledSharp
-        .png({
-          compressionLevel: 9,
-          palette: true,
-          colours: 2,
-        })
+      })
+        .png({ compressionLevel: 9 })
         .toBuffer();
     }
 
     this.logger.debug(
-      `E-ink processing complete: ${buffer.length} bytes, 1-bit, negate=${negate}`,
+      `E-ink processing complete: ${buffer.length} bytes, grayscale dithered`,
     );
 
     return buffer;
@@ -2575,7 +2555,24 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       this.logger.debug(`  Widget ${i}: ${w.template.name} at (${w.x}, ${w.y}) size ${w.width}x${w.height}${crossesEdge ? ' [CROSSES EDGE]' : ''}`);
     });
 
-    // Generate HTML for all widgets
+    // Pre-fetch data for custom widgets to avoid duplicate API calls
+    // When multiple custom widgets share a data source, this ensures only one external fetch
+    const seenDataSources = new Set<number>();
+    for (const widget of widgets) {
+      if (widget.template.name === 'custom-widget-base') {
+        const cwId = (widget.config as any)?.customWidgetId as number | undefined;
+        if (cwId) {
+          const cw = await this.customWidgetsService.findOne(cwId).catch(() => null);
+          if (cw?.dataSourceId && !seenDataSources.has(cw.dataSourceId)) {
+            seenDataSources.add(cw.dataSourceId);
+            // getWithData warms the data source cache in DB
+            await this.customWidgetsService.getWithData(cwId).catch(() => null);
+          }
+        }
+      }
+    }
+
+    // Generate HTML for all widgets (custom widget data is already cached)
     const widgetsHtml = await Promise.all(
       widgets.map(widget => this.generateWidgetHtml(widget, deviceContext))
     );
