@@ -16,7 +16,7 @@ describe('ApiController (e2e)', () => {
   const mockDisplayService = {
     getDisplayContent: async () => ({
       status: 200,
-      image_url: 'http://localhost:3002/test.png',
+      image_url: 'http://localhost:3337/test.png',
       firmware_url: null,
       refresh_rate: 900,
     }),
@@ -26,7 +26,7 @@ describe('ApiController (e2e)', () => {
     provisionDevice: async () => ({
       api_key: 'test-api-key',
       friendly_id: 'test-device-1',
-      image_url: 'http://localhost:3002/setup.bmp',
+      image_url: 'http://localhost:3337/setup.bmp',
       message: 'Welcome to Inker!',
     }),
   };

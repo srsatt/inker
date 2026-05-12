@@ -317,7 +317,7 @@ async function main() {
       version: '1.0.0',
       downloadUrl: 'https://example.com/firmware/v1.0.0.bin',
       releaseNotes: 'Initial stable release',
-      isStable: true,
+      isStable: false,
     },
   });
 

@@ -157,7 +157,7 @@ export function DeviceConnection() {
               <div className="p-4 border-t" style={{ borderColor: '#e5e7eb', backgroundColor: '#f9fafb' }}>
                 <div className="space-y-3 text-sm" style={{ color: '#374151' }}>
                   <ul className="list-disc ml-5 space-y-1">
-                    <li>Make sure you used <code className="bg-bg-muted px-1 rounded">{deviceApiUrl}</code> (port 80, <strong>not</strong> port 3002)</li>
+                    <li>Make sure you used <code className="bg-bg-muted px-1 rounded">{deviceApiUrl}</code></li>
                     <li>Wait up to 2 minutes for the initial setup to complete</li>
                     <li>Power cycle the device (unplug and replug) if it's stuck for more than 5 minutes</li>
                     <li>Check <code className="bg-bg-muted px-1 rounded">docker logs inker</code> for errors</li>

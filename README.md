@@ -17,7 +17,7 @@ Inker is heading in its own direction — focusing on homelab integrations like 
 - **Playlists** — Rotate multiple screens on devices automatically
 - **Device Management** — Auto-provisioning, firmware 1.7.8 support, real-time status, logs
 - **BYOD Support** — Register any e-ink device manually with custom screen resolution
-- **Custom Ports** — Run on any port with Docker port mapping (e.g. `800:80`)
+- **No external infra** — Runs locally with Bun and SQLite, no database or cache service required
 
 ## Screenshots
 
@@ -31,17 +31,40 @@ Inker is heading in its own direction — focusing on homelab integrations like 
 
 ## Quick start
 
-### Docker Run
+### Local Bun
 
 ```bash
-docker run -d \
-  --name inker \
-  --restart unless-stopped \
-  -p 80:80 \
-  -v inker_postgres:/var/lib/postgresql/17/main \
-  -v inker_redis:/data \
-  -v inker_uploads:/app/uploads \
-  wojooo/inker:latest
+bun run install:all
+bun run dev
+```
+
+Open **http://localhost:3337** and log in with PIN `1111`.
+
+The dev launcher creates the SQLite database at `backend/data/inker.db`, syncs the Prisma schema, seeds built-in models/templates, then starts:
+
+- public app: `http://localhost:3337`
+- internal backend: `http://localhost:3338`
+
+In dev, Vite owns port `3337` and proxies `/api` plus `/uploads` to the backend. TRMNL devices should use the same public URL as the browser, for example `http://de-unit-2506.local:3337`.
+
+For single-port mode without Vite HMR:
+
+```bash
+bun run dev:single
+```
+
+Open **http://localhost:3337**. This builds the frontend and serves it from the Nest backend.
+
+If your Mac cannot expose port `3337` to the LAN, but a Raspberry Pi can, bring up the temporary SSH proxy:
+
+```bash
+bun run proxy:rpi
+```
+
+By default it exposes `http://birdnet-pi.local:3337` and forwards traffic back to the local app on `127.0.0.1:3337`. Stop it with:
+
+```bash
+bun run proxy:rpi:down
 ```
 
 ### Docker Compose
@@ -54,18 +77,17 @@ services:
     container_name: inker
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "80:3337"
     volumes:
-      - postgres_data:/var/lib/postgresql/17/main
-      - redis_data:/data
+      - sqlite_data:/app/data
       - uploads_data:/app/uploads
     environment:
       TZ: UTC
       ADMIN_PIN: "1111"  # Quotes required — YAML strips leading zeros without them
+      DATABASE_URL: "file:../data/inker.db"
 
 volumes:
-  postgres_data:
-  redis_data:
+  sqlite_data:
   uploads_data:
 ```
 
@@ -81,7 +103,12 @@ Open **http://your-server-ip** and log in with PIN `1111`.
 |----------|-------------|---------|
 | `ADMIN_PIN` | Login PIN | `1111` |
 | `TZ` | Timezone for widgets | `UTC` |
-| `INKER_PORT` | External port (for custom port mapping, e.g. `INKER_PORT=800`) | `80` |
+| `HOST` | Backend listen host | `127.0.0.1` |
+| `PORT` | Backend port | `3337` |
+| `VITE_HOST` | Frontend dev listen host | `127.0.0.1` |
+| `VITE_PORT` | Frontend dev port | `3337` |
+| `VITE_BACKEND_PORT` | Frontend dev server backend target | `3338` |
+| `DATABASE_URL` | SQLite database URL | `file:../data/inker.db` |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated, or `*` for all) | same-origin |
 
 Pass with `-e`:
@@ -89,13 +116,13 @@ Pass with `-e`:
 docker run -d \
   --name inker \
   --restart unless-stopped \
-  -p 80:80 \
+  -p 80:3337 \
   -e ADMIN_PIN="1111" \
   -e TZ=Europe/Warsaw \
-  -v inker_postgres:/var/lib/postgresql/17/main \
-  -v inker_redis:/data \
+  -e DATABASE_URL="file:../data/inker.db" \
+  -v inker_data:/app/data \
   -v inker_uploads:/app/uploads \
-  wojooo/inker:latest
+  inker:latest
 ```
 
 ### Build from source
@@ -103,27 +130,26 @@ docker run -d \
 ```bash
 git clone https://github.com/wojo-o/inker.git
 cd inker
-docker compose up -d --build
+bun run install:all
+bun run dev
 ```
 
 ## Updating
 
 ```bash
-docker compose pull
-docker compose up -d
+bun run install:all
+bun run db:init
 ```
 
-All data (screens, devices, playlists, settings) is preserved — database schema updates are applied automatically on startup.
-
-> **Warning:** Never use `docker compose down -v` to update — the `-v` flag deletes all volumes and you will lose your data.
+All data (screens, devices, playlists, settings) is preserved in `backend/data/inker.db`. Uploads are stored under `backend/uploads/`.
 
 ## Troubleshooting
 
-If something isn't working after an update or on first run, reset the volumes and start fresh:
+If something isn't working after an update or on first run, reset local runtime state and start fresh:
 
 ```bash
-docker compose down -v
-docker compose up -d
+rm -rf backend/data backend/uploads
+bun run dev
 ```
 
 > **Note:** This removes all data (database, uploads). Only use on a fresh install or when you don't mind losing data.

@@ -1,5 +1,7 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
 
 /**
  * Prisma service that manages database connection lifecycle.
@@ -11,6 +13,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
+    process.env.DATABASE_URL ||= 'file:../data/inker.db';
+    mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+
     super({
       log: [
         { level: 'query', emit: 'event' },
@@ -25,6 +30,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         this.logger.debug(`Query: ${e.query} | Duration: ${e.duration}ms`);
       });
     }
+
   }
 
   /**

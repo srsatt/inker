@@ -21,9 +21,9 @@ vi.mock('axios', () => {
 // Mock config
 vi.mock('../config', () => ({
   config: {
-    apiUrl: 'http://localhost:3002/api',
-    backendUrl: 'http://localhost:3002',
-    getBackendUrl: (path: string) => `http://localhost:3002${path}`,
+    apiUrl: '/api',
+    backendUrl: '',
+    getBackendUrl: (path: string) => path,
     getAssetUrl: (path: string) => path,
   },
 }));
@@ -31,13 +31,6 @@ vi.mock('../config', () => ({
 describe('API service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock localStorage
-    const store: Record<string, string> = {};
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn((key: string) => store[key] || null),
-      setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
-      removeItem: vi.fn((key: string) => { delete store[key]; }),
-    });
   });
 
   describe('getErrorMessage pattern', () => {

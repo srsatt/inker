@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { BullModule } from '@nestjs/bullmq';
 import { TerminusModule } from '@nestjs/terminus';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -27,6 +27,37 @@ import { PluginsModule } from './plugins/plugins.module';
 import { configuration } from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 
+const frontendDistPath = [
+  join(process.cwd(), '..', 'frontend', 'dist'),
+  join(process.cwd(), 'frontend', 'dist'),
+  join(process.cwd(), 'public'),
+].find((path) => existsSync(path));
+
+const staticImports = [
+  ServeStaticModule.forRoot({
+    rootPath: join(process.cwd(), 'uploads'),
+    serveRoot: '/uploads',
+    serveStaticOptions: {
+      index: false,
+    },
+  }),
+  ...(frontendDistPath
+    ? [
+        ServeStaticModule.forRoot({
+          rootPath: frontendDistPath,
+          exclude: [
+            '/api',
+            '/api/(.*)',
+            '/health',
+            '/ready',
+            '/uploads/(.*)',
+            '/assets/(.*)',
+          ],
+        }),
+      ]
+    : []),
+];
+
 @Module({
   imports: [
     // Configuration
@@ -47,31 +78,11 @@ import { validationSchema } from './config/validation.schema';
       }],
     }),
 
-    // Queue management (BullMQ)
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: {
-          host: config.get<string>('redis.host', 'localhost'),
-          port: config.get<number>('redis.port', 6379),
-          password: config.get<string>('redis.password'),
-        },
-      }),
-    }),
-
     // Health checks
     TerminusModule,
 
-    // Serve static files (uploaded widget images)
-    // Use process.cwd() for consistent path resolution in Docker
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/uploads',
-      serveStaticOptions: {
-        index: false,
-      },
-    }),
+    // Serve uploads, and serve frontend build when present.
+    ...staticImports,
 
     // Core modules
     PrismaModule,

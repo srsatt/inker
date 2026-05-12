@@ -5,31 +5,31 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
-  // Backend URL: Use env var if set, otherwise use Docker service name or localhost
-  // In Docker: Use 'backend' service name (from docker-compose network)
-  // Local dev: defaults to http://localhost:3002
-  const backendUrl = process.env.VITE_BACKEND_URL || env.VITE_BACKEND_URL || 'http://backend:3002'
+  // Backend URL: use env var if set, otherwise local backend.
+  const backendUrl = process.env.VITE_BACKEND_URL || env.VITE_BACKEND_URL || 'http://127.0.0.1:3338'
 
   // Allowed hosts for domain access (comma-separated in env var)
   // Example: VITE_ALLOWED_HOSTS=myapp.example.com,app.mydomain.org
   const allowedHostsEnv = process.env.VITE_ALLOWED_HOSTS || env.VITE_ALLOWED_HOSTS || ''
   const allowedHosts = allowedHostsEnv ? allowedHostsEnv.split(',').map(h => h.trim()) : true
+  const host = process.env.VITE_HOST || env.VITE_HOST || '127.0.0.1'
+  const port = Number(process.env.VITE_PORT || env.VITE_PORT || 3337)
 
   return {
     plugins: [react()],
     server: {
-      port: 5173,
-      host: '0.0.0.0',
+      port,
+      host,
       allowedHosts,
       proxy: {
         '/api': {
           target: backendUrl,
-          changeOrigin: true,
+          changeOrigin: false,
           secure: false,
         },
         '/uploads': {
           target: backendUrl,
-          changeOrigin: true,
+          changeOrigin: false,
           secure: false,
         },
       },

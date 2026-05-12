@@ -4,49 +4,42 @@
  * This file provides dynamic configuration that adapts to the server's IP/hostname.
  *
  * HOW IT WORKS:
- * - For domain access (e.g., your-domain.com): Uses relative URLs via Vite proxy
- * - For IP access (e.g., 192.168.1.100:5173): Uses direct port 3002
+ * - Browser and device traffic use one public origin.
+ * - In Vite dev, /api and /uploads are proxied to the internal backend.
+ * - In single/prod mode, the backend serves both API and frontend assets.
  */
 
 // Get the current hostname from the browser
 const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 
-// Port configuration
-const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || '3002';
+// Public browser/device port. In dev this is Vite; in single/prod this is Nest.
+const PUBLIC_PORT = typeof window !== 'undefined' ? window.location.port || '80' : '3337';
 
 // Backend public URL for external domain access (e.g., https://api.your-domain.com)
 // When set, /uploads/* paths will be prefixed with this URL
 const BACKEND_PUBLIC_URL = import.meta.env.VITE_BACKEND_PUBLIC_URL || '';
 
-// Check if accessing via domain (not IP or localhost)
-const isIPAddress = (host: string) => /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost';
-// In production with nginx proxy, always use relative URLs
-const useDirect = import.meta.env.PROD ? false : isIPAddress(hostname);
-
 /**
  * Application configuration object
- * - Domain access: Uses relative URLs (goes through Vite proxy)
- * - IP access: Uses direct backend port
+ * Uses same-origin URLs so TRMNL always talks to the same public port.
  */
 export const config = {
   // Current hostname (e.g., "192.168.1.100" or "your-domain.com")
   hostname,
 
-  // Backend port
-  backendPort: BACKEND_PORT,
+  // Public app port
+  backendPort: PUBLIC_PORT,
 
   // API base URL
-  // Domain: relative URL (proxy) | IP: direct port
-  apiUrl: useDirect ? `http://${hostname}:${BACKEND_PORT}/api` : '/api',
+  apiUrl: '/api',
 
   // Full backend URL (for images, downloads, etc.)
-  // Domain: use current origin | IP: direct port
-  backendUrl: useDirect ? `http://${hostname}:${BACKEND_PORT}` : '',
+  backendUrl: '',
 
   // Helper to construct backend URLs
   getBackendUrl: (path: string = '') => {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    return useDirect ? `http://${hostname}:${BACKEND_PORT}${cleanPath}` : cleanPath;
+    return cleanPath;
   },
 
   // Helper to construct asset URLs (images, uploads)
@@ -58,10 +51,6 @@ export const config = {
       // Remove trailing slash from URL if present
       const baseUrl = BACKEND_PUBLIC_URL.replace(/\/$/, '');
       return `${baseUrl}${path}`;
-    }
-    // For IP access, use direct backend URL
-    if (path.startsWith('/uploads/') && useDirect) {
-      return `http://${hostname}:${BACKEND_PORT}${path}`;
     }
     return path;
   },

@@ -96,7 +96,7 @@ describe('SetupService', () => {
       mockPrisma.device.findUnique.mockResolvedValue(null);
       mockPrisma.device.create.mockResolvedValue(newDevice);
 
-      const result = await service.provisionDevice('AA:BB:CC:DD:EE:FF', undefined, undefined, 'http://localhost:3002');
+      const result = await service.provisionDevice('AA:BB:CC:DD:EE:FF', undefined, undefined, 'http://localhost:3337');
 
       expect(result.api_key).toBe('new-key-789');
       expect(result.reset_firmware).toBeUndefined();
@@ -126,7 +126,7 @@ describe('SetupService', () => {
         'AA:BB:CC:DD:EE:FF',
         '2.0.0',
         { battery: 90, wifi: -45 },
-        'http://localhost:3002',
+        'http://localhost:3337',
       );
 
       expect(result.api_key).toBe('existing-key-123');
@@ -151,7 +151,7 @@ describe('SetupService', () => {
         'AA:BB:CC:DD:EE:FF',
         '1.0.0',
         { battery: 100, wifi: -30 },
-        'http://localhost:3002',
+        'http://localhost:3337',
       );
 
       expect(result.api_key).toBe('new-key-456');
@@ -169,11 +169,11 @@ describe('SetupService', () => {
         friendlyId: 'keen-eagle-55',
       };
 
-      const result = (service as any).buildSetupResponse(device, 'http://myhost:3002');
+      const result = (service as any).buildSetupResponse(device, 'http://myhost:3337');
 
       expect(result.api_key).toBe('test-api-key');
       expect(result.friendly_id).toBe('keen-eagle-55');
-      expect(result.image_url).toBe('http://myhost:3002/uploads/setup.png');
+      expect(result.image_url).toBe('http://myhost:3337/uploads/setup.png');
       expect(result.message).toBe('Welcome to Inker!');
     });
 
@@ -186,7 +186,7 @@ describe('SetupService', () => {
         friendlyId: 'id',
       });
 
-      expect(result.image_url).toContain('http://localhost:3002');
+      expect(result.image_url).toContain('http://localhost:3337');
 
       if (originalApiUrl !== undefined) {
         process.env.API_URL = originalApiUrl;

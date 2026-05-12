@@ -21,7 +21,8 @@ async function bootstrap() {
 
   // Get config service
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('port', 3000);
+  const port = configService.get<number>('port', 3337);
+  const host = configService.get<string>('host', '127.0.0.1');
   const environment = configService.get<string>('environment', 'development');
 
   // Security middleware - allow cross-origin resource loading for images
@@ -106,8 +107,8 @@ async function bootstrap() {
     });
   });
 
-  await app.listen(port, '0.0.0.0');
-  logger.log(`Inker Server running in ${environment} mode on port ${port} (listening on all interfaces)`);
+  await app.listen(port, host);
+  logger.log(`Inker Server running in ${environment} mode at http://${host}:${port}`);
 
   // Warn if using default PIN
   const adminPin = process.env.ADMIN_PIN || '1111';

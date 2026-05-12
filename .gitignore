@@ -20,6 +20,9 @@ logs/
 logs.txt
 npm-debug.log*
 
+# Local tunnel/proxy state
+.inker-proxy/
+
 # IDE
 .vscode/
 .idea/
@@ -33,6 +36,14 @@ Thumbs.db
 # Docker volumes (local data)
 postgres_data/
 redis_data/
+
+# Local SQLite data
+data/
+backend/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
 
 # Docker local overrides
 docker-compose.override.yml

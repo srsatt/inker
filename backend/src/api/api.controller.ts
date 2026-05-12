@@ -77,7 +77,7 @@ export class ApiController {
   private getBaseUrlFromRequest(headers: Record<string, string>): string {
     // Use configured API_URL if set (prevents host header injection)
     const configuredUrl = this.configService.get<string>('api.url');
-    if (configuredUrl && configuredUrl !== `http://localhost:${this.configService.get('port', 3002)}`) {
+    if (configuredUrl && configuredUrl !== `http://localhost:${this.configService.get('port', 3337)}`) {
       return configuredUrl;
     }
 
@@ -139,7 +139,7 @@ export class ApiController {
       example: {
         status: 0,
         filename: 'design-5-1702069200000.png',
-        image_url: 'http://localhost:3002/api/device-images/design/5?t=1702069200000',
+        image_url: 'http://localhost:3337/api/device-images/design/5?t=1702069200000',
         firmware_url: '',
         update_firmware: false,
         refresh_rate: 900,

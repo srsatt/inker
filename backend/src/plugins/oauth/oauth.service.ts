@@ -30,7 +30,7 @@ export class OAuthService {
     private readonly encryption: EncryptionService,
   ) {
     this.providers = (config.get('oauth.providers') || {}) as Record<string, OAuthProviderConfig>;
-    const apiUrl = config.get<string>('api.url') || 'http://localhost:3002';
+    const apiUrl = config.get<string>('api.url') || 'http://localhost:3337';
     this.callbackUrl = `${apiUrl}/plugins/oauth/callback`;
   }
 

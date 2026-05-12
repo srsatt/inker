@@ -47,7 +47,7 @@ export class SetupService {
    * @param macAddress - Device MAC address
    * @param firmwareVersion - Device firmware version (optional)
    * @param metrics - Device metrics (battery, wifi)
-   * @param baseUrl - Dynamic base URL from request (e.g., "http://localhost:3002")
+   * @param baseUrl - Dynamic base URL from request (e.g., "http://localhost:3337")
    * @param modelName - Device model name (optional, defaults to "og_png")
    */
   async provisionDevice(
@@ -151,7 +151,7 @@ export class SetupService {
    */
   private buildSetupResponse(device: any, baseUrl?: string) {
     // Use dynamic URL from request, or fall back to environment/default
-    const apiUrl = baseUrl || process.env.API_URL || 'http://localhost:3002';
+    const apiUrl = baseUrl || process.env.API_URL || 'http://localhost:3337';
 
     // Get the setup screen URL from the SetupScreenService
     const setupScreenUrl = this.setupScreenService.getSetupScreenUrl();

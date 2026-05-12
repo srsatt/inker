@@ -1,21 +1,16 @@
 export const configuration = () => ({
-  port: parseInt(process.env.PORT || '3002', 10),
+  port: parseInt(process.env.PORT || '3337', 10),
+  host: process.env.HOST || '127.0.0.1',
   environment: process.env.NODE_ENV || 'development',
 
   api: {
-    url: process.env.API_URL || `http://localhost:${process.env.PORT || '3002'}`,
+    url: process.env.API_URL || `http://localhost:${process.env.PORT || '3337'}`,
   },
 
   inkerPort: parseInt(process.env.INKER_PORT || '80', 10),
 
   database: {
-    url: process.env.DATABASE_URL,
-  },
-
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD,
+    url: process.env.DATABASE_URL || 'file:../data/inker.db',
   },
 
   // Background jobs configuration
@@ -38,6 +33,11 @@ export const configuration = () => ({
     pluginSync: {
       enabled: process.env.PLUGIN_SYNC_ENABLED !== 'false',
       interval: parseInt(process.env.PLUGIN_SYNC_INTERVAL || '604800000', 10), // 7 days
+    },
+    logCleanup: {
+      enabled: process.env.LOG_CLEANUP_ENABLED !== 'false',
+      interval: parseInt(process.env.LOG_CLEANUP_INTERVAL || '86400000', 10), // 24 hours
+      retentionDays: parseInt(process.env.LOG_RETENTION_DAYS || '30', 10),
     },
   },
 

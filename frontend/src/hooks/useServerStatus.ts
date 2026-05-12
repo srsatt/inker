@@ -29,7 +29,7 @@ export function useServerStatus(): UseServerStatusResult {
     isOnline: false,
     apiUrl: config.apiUrl,
     localIp: config.hostname, // Dynamic: gets actual server IP from browser URL
-    port: config.backendPort, // Backend port (3002)
+    port: config.backendPort,
     lastChecked: null,
     error: null,
   });

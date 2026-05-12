@@ -5,27 +5,26 @@ services:
     container_name: inker
     restart: unless-stopped
     ports:
-      - "${INKER_PORT:-80}:80"
+      - "${INKER_PORT:-80}:3337"
     volumes:
-      - postgres_data:/var/lib/postgresql/17/main
-      - redis_data:/data
+      - sqlite_data:/app/data
       - uploads_data:/app/uploads
     environment:
       TZ: ${TZ:-UTC}
       ADMIN_PIN: "${ADMIN_PIN:-1111}"
-      INKER_PORT: "${INKER_PORT:-80}"
+      HOST: "0.0.0.0"
+      PORT: "3337"
+      DATABASE_URL: "file:../data/inker.db"
       DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-UTC}
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1/health');process.exit(r.ok?0:1)"]
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:3337/health');process.exit(r.ok?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 60s
 
 volumes:
-  postgres_data:
-    driver: local
-  redis_data:
+  sqlite_data:
     driver: local
   uploads_data:
     driver: local

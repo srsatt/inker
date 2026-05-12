@@ -1,0 +1,17 @@
+{
+  "name": "inker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:all": "bun install --cwd backend && bun install --cwd frontend",
+    "dev": "bun run scripts/dev.ts",
+    "dev:single": "bun run scripts/dev.ts --single",
+    "proxy:rpi": "bun run scripts/rpi-proxy.ts",
+    "proxy:rpi:down": "bun run scripts/rpi-proxy.ts --down",
+    "db:init": "bun run --cwd backend db:init",
+    "db:push": "bun run --cwd backend prisma:push",
+    "db:seed": "bun run --cwd backend prisma:seed",
+    "build": "bun run --cwd frontend build && bun run --cwd backend build",
+    "start": "bun run --cwd backend start:prod"
+  }
+}

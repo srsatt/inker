@@ -5,7 +5,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -167,7 +167,7 @@ model CustomWidget {
   dataSourceId  Int      @map("data_source_id")
   displayType   String   // "template" | "value" | "list" | "title-value"
   template      String?  // Template string for "template" display type
-  config        Json     @default("{}") // Layout config (fontSize, alignment, etc.)
+  config        Json     // Layout config (fontSize, alignment, etc.)
   minWidth      Int      @default(100) @map("min_width")
   minHeight     Int      @default(50) @map("min_height")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -355,8 +355,8 @@ model PluginInstance {
   pluginId             Int      @map("plugin_id")
   name                 String?  // optional custom name for this instance
 
-  settings             Json     @default("{}") // user settings (non-sensitive)
-  settingsEncrypted    Json     @default("{}") @map("settings_encrypted") // encrypted settings (API keys)
+  settings             Json     // user settings (non-sensitive)
+  settingsEncrypted    Json     @map("settings_encrypted") // encrypted settings (API keys)
 
   // OAuth tokens (encrypted)
   oauthToken           String?  @map("oauth_token")         // encrypted access token

@@ -38,7 +38,7 @@ export class DisplayService {
    * @param macAddressOrApiKey - Device MAC address or API key
    * @param useBase64 - Whether to include base64 encoded image
    * @param metrics - Device metrics (battery, wifi)
-   * @param baseUrl - Dynamic base URL from request (e.g., "http://localhost:3002")
+   * @param baseUrl - Dynamic base URL from request (e.g., "http://localhost:3337")
    */
   async getDisplayContent(
     macAddressOrApiKey: string,
@@ -48,7 +48,7 @@ export class DisplayService {
     firmwareVersion?: string,
   ) {
     // Use dynamic baseUrl from request, or fall back to config
-    const apiUrl = baseUrl || this.config.get<string>('api.url', 'http://localhost:3002');
+    const apiUrl = baseUrl || this.config.get<string>('api.url', 'http://localhost:3337');
     // Find device by MAC address (id header) or API key (access-token header)
     // The Ruby version looks up by MAC address for better compatibility
     let device = await this.prisma.device.findFirst({

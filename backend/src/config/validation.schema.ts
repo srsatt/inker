@@ -4,15 +4,11 @@ export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test', 'staging')
     .default('development'),
-  PORT: Joi.number().default(3000),
+  PORT: Joi.number().default(3337),
+  HOST: Joi.string().default('127.0.0.1'),
 
   // Database
-  DATABASE_URL: Joi.string().required(),
-
-  // Redis
-  REDIS_HOST: Joi.string().default('localhost'),
-  REDIS_PORT: Joi.number().default(6379),
-  REDIS_PASSWORD: Joi.string().optional().allow(''),
+  DATABASE_URL: Joi.string().default('file:../data/inker.db'),
 
   // Rate limiting
   THROTTLE_TTL: Joi.number().default(60),
@@ -32,4 +28,9 @@ export const validationSchema = Joi.object({
     .valid('error', 'warn', 'info', 'debug', 'verbose')
     .default('info'),
   LOG_FORMAT: Joi.string().valid('json', 'simple').default('json'),
+
+  // Background jobs
+  LOG_CLEANUP_ENABLED: Joi.boolean().default(true),
+  LOG_CLEANUP_INTERVAL: Joi.number().default(86400000),
+  LOG_RETENTION_DAYS: Joi.number().default(30),
 });

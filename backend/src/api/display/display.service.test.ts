@@ -12,7 +12,7 @@ describe('DisplayService', () => {
 
   beforeEach(() => {
     mockPrisma = createMockPrisma();
-    mockConfig = { get: createMock().mockReturnValue('http://localhost:3002') };
+    mockConfig = { get: createMock().mockReturnValue('http://localhost:3337') };
     mockDefaultScreenService = {
       getDefaultScreenUrl: createMock().mockReturnValue('/uploads/default-screen.png'),
       getDefaultScreenBase64: createMock().mockResolvedValue('base64data'),
