@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Liquid } from 'liquidjs';
 import * as sharp from 'sharp';
-import { ScreenRendererService } from '../screen-designer/services/screen-renderer.service';
+import { ScreenRendererService, type RenderFormat } from '../screen-designer/services/screen-renderer.service';
 import { TRMNL_CSS } from './sync/trmnl-css';
 
 export type PluginLayout = 'full' | 'half_horizontal' | 'half_vertical' | 'quadrant';
@@ -225,6 +225,7 @@ ${innerHtml}
     width: number = 800,
     height: number = 480,
     mode: 'device' | 'preview' | 'einkPreview' = 'device',
+    format: RenderFormat = 'png',
   ): Promise<Buffer> {
     const innerHtml = await this.renderToHtml(markup, locals, settings);
     const fullPage = this.buildFullPage(innerHtml, width, height);
@@ -240,7 +241,7 @@ ${innerHtml}
     // Apply e-ink processing (dithering + optional inversion)
     const shouldNegate = mode === 'device';
     const canvas = sharp(rawPng);
-    return this.screenRenderer.applyEinkProcessing(canvas, width, height, shouldNegate);
+    return this.screenRenderer.applyEinkProcessing(canvas, width, height, shouldNegate, format);
   }
 
   /**

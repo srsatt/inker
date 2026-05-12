@@ -6,6 +6,7 @@ import * as sharpModule from 'sharp';
 const sharp = (sharpModule as any).default || sharpModule;
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';
 
 /**
  * Escape XML special characters to prevent SVG corruption
@@ -314,6 +315,13 @@ export class DefaultScreenService implements OnModuleInit {
     await this.ensureDefaultScreenExists();
 
     return fs.readFile(this.defaultScreenPath);
+  }
+
+  async getDefaultScreenBmpBuffer(): Promise<Buffer> {
+    await this.ensureDefaultScreenExists();
+
+    const buffer = await fs.readFile(this.defaultScreenPath);
+    return imageBufferTo1BitBmp(buffer);
   }
 
   /**

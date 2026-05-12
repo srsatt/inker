@@ -5,10 +5,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { DefaultScreenService } from './default-screen.service';
 import { ScreenRendererService } from '../../screen-designer/services/screen-renderer.service';
 import { PluginsService } from '../../plugins/plugins.service';
 import { SetupService } from '../setup/setup.service';
+import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';
 
 /**
  * Device metrics from headers
@@ -17,6 +20,8 @@ export interface DeviceMetrics {
   battery?: number;  // Battery percentage (0-100)
   wifi?: number;     // WiFi RSSI in dBm (e.g., -51)
 }
+
+type DeviceImageFormat = 'png' | 'bmp';
 
 @Injectable()
 export class DisplayService {
@@ -200,13 +205,14 @@ export class DisplayService {
 
     // Default refresh rate (used for default screens or when no playlist)
     const defaultRefreshRate = shouldRefreshImmediately ? 1 : device.refreshRate;
+    const imageFormat = this.getDeviceImageFormat(device);
 
     // If no playlist or no screens in playlist, return the default welcome screen
     if (!device.playlist || !device.playlist.items || device.playlist.items.length === 0) {
       this.logger.log(`Device ${device.name} has no playlist - serving default screen`);
 
       await this.defaultScreenService.ensureDefaultScreenExists();
-      const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
+      const defaultScreenUrl = this.getDefaultScreenUrl(imageFormat);
       const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       // Get base64 if requested
@@ -222,7 +228,7 @@ export class DisplayService {
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: `default-screen-${Date.now()}.png`,
+        filename: `default-screen-${Date.now()}.${imageFormat}`,
         image_url_timeout: 0,
         image_data: imageData,
         firmware_url: firmwareUrl,
@@ -248,7 +254,7 @@ export class DisplayService {
       this.logger.log(`Device ${device.name} playlist has no valid screens - serving default screen`);
 
       await this.defaultScreenService.ensureDefaultScreenExists();
-      const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
+      const defaultScreenUrl = this.getDefaultScreenUrl(imageFormat);
       const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       // Get base64 if requested
@@ -264,7 +270,7 @@ export class DisplayService {
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: `default-screen-${Date.now()}.png`,
+        filename: `default-screen-${Date.now()}.${imageFormat}`,
         image_url_timeout: 0,
         image_data: imageData,
         firmware_url: firmwareUrl,
@@ -326,9 +332,10 @@ export class DisplayService {
     // Handle both regular screens and designed screens
     if (currentScreen.screen) {
       // Regular uploaded screen
-      const imageUrl = currentScreen.screen.imageUrl.startsWith('http')
-        ? currentScreen.screen.imageUrl
-        : `${apiUrl}${currentScreen.screen.imageUrl}`;
+      const screenImageFormat = imageFormat === 'bmp' && !currentScreen.screen.imageUrl.startsWith('http')
+        ? 'bmp'
+        : 'png';
+      const imageUrl = this.getScreenImageUrl(apiUrl, currentScreen.screen, screenImageFormat, Date.now());
 
       this.logger.debug(
         `Serving screen "${currentScreen.screen.name}" to device ${device.name}`,
@@ -337,7 +344,7 @@ export class DisplayService {
       return {
         status: 0,
         image_url: imageUrl,
-        filename: this.getImageFilename(currentScreen.screen.imageUrl),
+        filename: this.getImageFilenameForFormat(currentScreen.screen.imageUrl, screenImageFormat),
         image_url_timeout: 0,
         image_data: useBase64 ? await this.getBase64Image(currentScreen.screen.imageUrl) : undefined,
         firmware_url: firmwareUrl,
@@ -363,6 +370,7 @@ export class DisplayService {
         deviceName: device.name || 'Unknown',
         firmwareVersion: device.firmwareVersion || 'Unknown',
         macAddress: device.macAddress ? `XX:XX:XX:${device.macAddress.slice(-8)}` : 'Unknown',
+        format: imageFormat,
       });
       const renderUrl = `${apiUrl}/api/device-images/design/${currentScreen.screenDesign.id}?${queryParams.toString()}`;
 
@@ -371,7 +379,7 @@ export class DisplayService {
       // "design-5.png", the device thinks it already has this image and won't fetch
       // the new URL. By changing the filename on each request (e.g., "design-5-1702069200000.png"),
       // the device recognizes it as a new file and downloads the fresh image.
-      const dynamicFilename = `design-${currentScreen.screenDesign.id}-${timestamp}.png`;
+      const dynamicFilename = `design-${currentScreen.screenDesign.id}-${timestamp}.${imageFormat}`;
 
       this.logger.debug(
         `Serving screen "${currentScreen.screenDesign.name}" to device ${device.name} (refresh: ${effectiveRefreshRate}s, next_at: ${nextRefreshAt ? new Date(nextRefreshAt).toISOString() : 'N/A'})`,
@@ -399,8 +407,8 @@ export class DisplayService {
       const pluginInstance = currentScreen.pluginInstance;
       const timestamp = Date.now();
 
-      const renderUrl = `${apiUrl}/api/plugins/instances/${pluginInstance.id}/render?mode=device&t=${timestamp}`;
-      const dynamicFilename = `plugin-${pluginInstance.plugin.slug}-${timestamp}.png`;
+      const renderUrl = `${apiUrl}/api/plugins/instances/${pluginInstance.id}/render?mode=device&format=${imageFormat}&t=${timestamp}`;
+      const dynamicFilename = `plugin-${pluginInstance.plugin.slug}-${timestamp}.${imageFormat}`;
 
       this.logger.debug(
         `Serving PLUGIN "${pluginInstance.plugin.name}" to device ${device.name} (refresh: ${effectiveRefreshRate}s)`,
@@ -428,13 +436,13 @@ export class DisplayService {
       this.logger.warn(`Playlist item ${currentScreen.id} has no screen, screenDesign, or plugin`);
 
       await this.defaultScreenService.ensureDefaultScreenExists();
-      const defaultScreenUrl = this.defaultScreenService.getDefaultScreenUrl();
+      const defaultScreenUrl = this.getDefaultScreenUrl(imageFormat);
       const fullDefaultUrl = `${apiUrl}${defaultScreenUrl}?t=${Date.now()}`;
 
       return {
         status: 0,
         image_url: fullDefaultUrl,
-        filename: `default-screen-${Date.now()}.png`,
+        filename: `default-screen-${Date.now()}.${imageFormat}`,
         image_url_timeout: 0,
         image_data: undefined,
         firmware_url: firmwareUrl,
@@ -554,6 +562,47 @@ export class DisplayService {
   private getImageFilename(imageUrl: string): string {
     const parts = imageUrl.split('/');
     return parts[parts.length - 1];
+  }
+
+  private getImageFilenameForFormat(imageUrl: string, format: DeviceImageFormat): string {
+    const filename = this.getImageFilename(imageUrl.split('?')[0]);
+    return format === 'bmp' ? filename.replace(/\.[^.]+$/, '.bmp') : filename;
+  }
+
+  private getDeviceImageFormat(device: any): DeviceImageFormat {
+    const modelName = device.model?.name || '';
+    const mimeType = device.model?.mimeType || '';
+    return modelName.endsWith('_bmp') || mimeType === 'image/bmp' ? 'bmp' : 'png';
+  }
+
+  private getDefaultScreenUrl(format: DeviceImageFormat): string {
+    return format === 'bmp' ? '/api/default-screen.bmp' : this.defaultScreenService.getDefaultScreenUrl();
+  }
+
+  private getScreenImageUrl(apiUrl: string, screen: { id: number; imageUrl: string }, format: DeviceImageFormat, timestamp: number): string {
+    if (format === 'bmp' && !screen.imageUrl.startsWith('http')) {
+      return `${apiUrl}/api/device-images/screen/${screen.id}?format=bmp&t=${timestamp}`;
+    }
+
+    return screen.imageUrl.startsWith('http')
+      ? screen.imageUrl
+      : `${apiUrl}${screen.imageUrl}`;
+  }
+
+  async getScreenImageBuffer(screenId: number, format: DeviceImageFormat = 'png'): Promise<Buffer> {
+    const screen = await this.prisma.screen.findUnique({ where: { id: screenId } });
+    if (!screen || screen.imageUrl.startsWith('http')) {
+      throw new NotFoundException('Screen not found');
+    }
+
+    const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+    const imagePath = path.resolve(process.cwd(), screen.imageUrl.slice(1));
+    if (!imagePath.startsWith(uploadsRoot + path.sep) && imagePath !== uploadsRoot) {
+      throw new NotFoundException('Screen not found');
+    }
+
+    const imageBuffer = await fs.readFile(imagePath);
+    return format === 'bmp' ? imageBufferTo1BitBmp(imageBuffer) : imageBuffer;
   }
 
   /**

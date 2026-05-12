@@ -68,14 +68,18 @@ export class SetupService {
     });
 
     // Check if device already exists
-    let device = await this.prisma.device.findUnique({
+    let device: any = await this.prisma.device.findUnique({
       where: { macAddress },
+      include: { model: true },
     });
 
     if (device) {
       // Device exists, update firmware version and metrics if provided
       const updateData: {
         firmwareVersion?: string;
+        modelId?: number;
+        width?: number;
+        height?: number;
         lastSeenAt: Date;
         battery?: number;
         wifi?: number;
@@ -85,6 +89,13 @@ export class SetupService {
 
       if (firmwareVersion && firmwareVersion !== device.firmwareVersion) {
         updateData.firmwareVersion = firmwareVersion;
+      }
+
+      if (modelName && MODEL_DIMENSIONS[modelName]) {
+        const model = await this.prisma.model.findUnique({ where: { name: modelName } });
+        updateData.modelId = model?.id;
+        updateData.width = MODEL_DIMENSIONS[modelName].width;
+        updateData.height = MODEL_DIMENSIONS[modelName].height;
       }
 
       // Update battery if provided
@@ -100,13 +111,14 @@ export class SetupService {
       device = await this.prisma.device.update({
         where: { id: device.id },
         data: updateData,
+        include: { model: true },
       });
 
       this.logger.log(
         `Device ${device.name} re-provisioned (MAC: ${macAddress}, battery: ${device.battery}%, wifi: ${device.wifi} dBm)`,
       );
 
-      return this.buildSetupResponse(device, baseUrl);
+      return this.buildSetupResponse(device, baseUrl, modelName);
     }
 
     // Device doesn't exist, create new one
@@ -115,6 +127,9 @@ export class SetupService {
 
     // Resolve dimensions from model name, default to 800x480 (TRMNL Original)
     const dimensions = (modelName && MODEL_DIMENSIONS[modelName]) || MODEL_DIMENSIONS.og_png;
+    const model = modelName
+      ? await this.prisma.model.findUnique({ where: { name: modelName } })
+      : await this.prisma.model.findUnique({ where: { name: 'og_png' } });
 
     // Create new device
     device = await this.prisma.device.create({
@@ -124,6 +139,7 @@ export class SetupService {
         macAddress,
         apiKey,
         firmwareVersion,
+        modelId: model?.id,
         width: dimensions.width,
         height: dimensions.height,
         lastSeenAt: new Date(),
@@ -141,7 +157,7 @@ export class SetupService {
       `New device provisioned: ${device.name} (MAC: ${macAddress})`,
     );
 
-    return this.buildSetupResponse(device, baseUrl);
+    return this.buildSetupResponse(device, baseUrl, modelName);
   }
 
   /**
@@ -149,12 +165,15 @@ export class SetupService {
    * Must match the exact format from firmware/setup.rb:
    * { api_key, friendly_id, image_url, message }
    */
-  private buildSetupResponse(device: any, baseUrl?: string) {
+  private buildSetupResponse(device: any, baseUrl?: string, modelName?: string) {
     // Use dynamic URL from request, or fall back to environment/default
     const apiUrl = baseUrl || process.env.API_URL || 'http://localhost:3337';
 
     // Get the setup screen URL from the SetupScreenService
-    const setupScreenUrl = this.setupScreenService.getSetupScreenUrl();
+    const useBmp = modelName?.endsWith('_bmp')
+      || device.model?.name?.endsWith('_bmp')
+      || device.model?.mimeType === 'image/bmp';
+    const setupScreenUrl = useBmp ? '/api/setup-screen.bmp' : this.setupScreenService.getSetupScreenUrl();
 
     return {
       status: 200,                      // Firmware 1.7.8 setup parser checks status == 200

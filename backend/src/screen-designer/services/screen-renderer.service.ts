@@ -18,6 +18,7 @@ const sharp = (sharpModule as any).default || sharpModule;
 import puppeteer, { Browser } from 'puppeteer';
 import QRCode from 'qrcode';
 import { validateUrlSafety, UrlSafetyOptions } from '../../common/utils/url-safety';
+import { encode1BitBmpFromGrayscale } from '../../common/utils/bmp.util';
 import { SETTING_KEYS } from '../../settings/settings.service';
 import type { ScreenDesign, ScreenWidget, WidgetTemplate } from '@prisma/client';
 
@@ -43,6 +44,7 @@ export interface DeviceContext {
  * - 'einkPreview': Full e-ink processing WITHOUT inversion (pixel-perfect preview on RGB display)
  */
 export type RenderMode = 'device' | 'preview' | 'einkPreview';
+export type RenderFormat = 'png' | 'bmp';
 
 /**
  * Screen Renderer Service
@@ -229,7 +231,12 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
    * @param deviceContext - Optional device data for battery/wifi/info widgets
    * @param mode - Render mode: 'device' (full e-ink), 'preview' (no processing), 'einkPreview' (e-ink without inversion)
    */
-  async renderScreenDesign(screenDesignId: number, deviceContext?: DeviceContext, mode: RenderMode | boolean = 'device'): Promise<Buffer> {
+  async renderScreenDesign(
+    screenDesignId: number,
+    deviceContext?: DeviceContext,
+    mode: RenderMode | boolean = 'device',
+    format: RenderFormat = 'png',
+  ): Promise<Buffer> {
     // Support legacy boolean parameter for backwards compatibility
     const renderMode: RenderMode = typeof mode === 'boolean' ? (mode ? 'preview' : 'device') : mode;
 
@@ -251,7 +258,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       throw new NotFoundException('Screen design not found');
     }
 
-    return this.renderDesign(screenDesign as ScreenDesignWithWidgets, deviceContext, renderMode);
+    return this.renderDesign(screenDesign as ScreenDesignWithWidgets, deviceContext, renderMode, format);
   }
 
   /**
@@ -276,7 +283,12 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
    * Internal render method - uses HTML/CSS + Puppeteer for pixel-perfect rendering
    * @param mode - Render mode: 'device' (full e-ink), 'preview' (no processing), 'einkPreview' (e-ink without inversion)
    */
-  private async renderDesign(screenDesign: ScreenDesignWithWidgets, deviceContext?: DeviceContext, mode: RenderMode = 'device'): Promise<Buffer> {
+  private async renderDesign(
+    screenDesign: ScreenDesignWithWidgets,
+    deviceContext?: DeviceContext,
+    mode: RenderMode = 'device',
+    format: RenderFormat = 'png',
+  ): Promise<Buffer> {
     const { width, height } = screenDesign;
 
     this.logger.debug(
@@ -311,7 +323,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     // Create Sharp instance from the composited screenshot for e-ink processing
     const canvas = sharp(renderBuffer);
 
-    return this.applyEinkProcessing(canvas, width, height, shouldNegate);
+    return this.applyEinkProcessing(canvas, width, height, shouldNegate, format);
   }
 
   /**
@@ -332,6 +344,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     width: number,
     height: number,
     negate: boolean,
+    format: RenderFormat = 'png',
   ): Promise<Buffer> {
     const MAX_SIZE = 90000; // Max 90KB for TRMNL devices
     const threshold = 140; // Higher threshold favors white
@@ -347,6 +360,14 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
 
     // Apply Floyd-Steinberg dithering
     const ditheredBuffer = this.applyFloydSteinbergDithering(data, info.width, info.height, threshold);
+
+    if (format === 'bmp') {
+      const buffer = encode1BitBmpFromGrayscale(ditheredBuffer, info.width, info.height);
+      this.logger.debug(
+        `E-ink processing complete: ${buffer.length} bytes, 1-bit BMP`,
+      );
+      return buffer;
+    }
 
     // Output as standard 8-bit grayscale PNG (no palette mode)
     // Firmware 1.7.8 handles display color mapping — palette PNGs cause scrambled display

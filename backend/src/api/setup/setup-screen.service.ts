@@ -4,6 +4,7 @@ import * as sharpModule from 'sharp';
 const sharp = (sharpModule as any).default || sharpModule;
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';
 
 /**
  * Setup Screen Service
@@ -202,6 +203,13 @@ export class SetupScreenService implements OnModuleInit {
    */
   getSetupScreenPath(): string {
     return this.setupScreenPath;
+  }
+
+  async getSetupScreenBmpBuffer(): Promise<Buffer> {
+    await this.ensureSetupScreenExists();
+
+    const buffer = await fs.readFile(this.setupScreenPath);
+    return imageBufferTo1BitBmp(buffer);
   }
 
   /**

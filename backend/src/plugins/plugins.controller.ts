@@ -515,6 +515,7 @@ export class PluginsController {
     @Param('id', ParseIntPipe) id: number,
     @Query('layout') layout: string,
     @Query('mode') mode: string,
+    @Query('format') format: string,
     @Res() res: Response,
   ) {
     const validLayout = (['full', 'half_horizontal', 'half_vertical', 'quadrant'].includes(layout)
@@ -523,11 +524,12 @@ export class PluginsController {
     const validMode = (['device', 'preview', 'einkPreview'].includes(mode)
       ? mode
       : 'preview') as 'device' | 'preview' | 'einkPreview';
+    const validFormat = format === 'bmp' ? 'bmp' : 'png';
 
-    const imageBuffer = await this.pluginsService.renderInstance(id, validLayout, validMode);
+    const imageBuffer = await this.pluginsService.renderInstance(id, validLayout, validMode, validFormat);
 
     res.set({
-      'Content-Type': 'image/png',
+      'Content-Type': validFormat === 'bmp' ? 'image/bmp' : 'image/png',
       'Content-Length': imageBuffer.length,
       'Cache-Control': 'no-store',
     });

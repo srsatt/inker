@@ -30,6 +30,7 @@ import { Public } from '../common/decorators/public.decorator';
 import { DisplayService } from './display/display.service';
 import { DefaultScreenService } from './display/default-screen.service';
 import { SetupService } from './setup/setup.service';
+import { SetupScreenService } from './setup/setup-screen.service';
 import { LogService } from './log/log.service';
 import { CreateLogDto } from './log/dto/create-log.dto';
 import { ScreenRendererService } from '../screen-designer/services/screen-renderer.service';
@@ -50,6 +51,7 @@ export class ApiController {
     private readonly displayService: DisplayService,
     private readonly defaultScreenService: DefaultScreenService,
     private readonly setupService: SetupService,
+    private readonly setupScreenService: SetupScreenService,
     private readonly logService: LogService,
     private readonly screenRendererService: ScreenRendererService,
     private readonly configService: ConfigService,
@@ -518,6 +520,32 @@ export class ApiController {
     return this.getSetup(headers);
   }
 
+  @Get('setup-screen.bmp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get setup screen as 1-bit BMP' })
+  async getSetupScreenBmp(@Res() res: Response) {
+    const imageBuffer = await this.setupScreenService.getSetupScreenBmpBuffer();
+    res.set({
+      'Content-Type': 'image/bmp',
+      'Content-Length': imageBuffer.length,
+      'Cache-Control': 'no-store',
+    });
+    res.send(imageBuffer);
+  }
+
+  @Get('default-screen.bmp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get default screen as 1-bit BMP' })
+  async getDefaultScreenBmp(@Res() res: Response) {
+    const imageBuffer = await this.defaultScreenService.getDefaultScreenBmpBuffer();
+    res.set({
+      'Content-Type': 'image/bmp',
+      'Content-Length': imageBuffer.length,
+      'Cache-Control': 'no-store',
+    });
+    res.send(imageBuffer);
+  }
+
   /**
    * Device Current Screen Preview Endpoint - GET /api/device-images/device/:id
    * Returns the PNG image that a device is currently displaying (preview mode)
@@ -552,6 +580,28 @@ export class ApiController {
       this.logger.error(`Failed to render current screen for device ${id}: ${error.message}`);
       throw new NotFoundException('Device or screen not found');
     }
+  }
+
+  @Get('device-images/screen/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get uploaded screen image, optionally as 1-bit BMP' })
+  async renderUploadedScreen(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('format') format: string,
+    @Res() res: Response,
+  ) {
+    const imageFormat = format === 'bmp' ? 'bmp' : 'png';
+    const imageBuffer = await this.displayService.getScreenImageBuffer(id, imageFormat);
+
+    res.set({
+      'Content-Type': imageFormat === 'bmp' ? 'image/bmp' : 'image/png',
+      'Content-Length': imageBuffer.length,
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+
+    res.send(imageBuffer);
   }
 
   /**
@@ -589,6 +639,7 @@ export class ApiController {
     @Query('firmwareVersion') firmwareVersion: string,
     @Query('macAddress') macAddress: string,
     @Query('mode') mode: string,
+    @Query('format') format: string,
     @Query('preview') preview: string,
     @Res() res: Response,
   ) {
@@ -603,6 +654,7 @@ export class ApiController {
       } else if (preview === 'true' || preview === '1') {
         renderMode = 'preview';
       }
+      const imageFormat = format === 'bmp' && renderMode !== 'preview' ? 'bmp' : 'png';
 
       // NOTE: Capture serving is handled by display.service.ts which returns capture URLs
       // for static screens and render URLs for dynamic screens (clock, countdown, weather).
@@ -618,7 +670,7 @@ export class ApiController {
       };
 
       // Fall back to re-rendering if no capture exists
-      const imageBuffer = await this.screenRendererService.renderScreenDesign(id, deviceContext, renderMode);
+      const imageBuffer = await this.screenRendererService.renderScreenDesign(id, deviceContext, renderMode, imageFormat);
 
       // Disable caching for all render modes - admin UI needs fresh previews
       const cacheHeaders = {
@@ -628,7 +680,7 @@ export class ApiController {
       };
 
       res.set({
-        'Content-Type': 'image/png',
+        'Content-Type': imageFormat === 'bmp' ? 'image/bmp' : 'image/png',
         'Content-Length': imageBuffer.length,
         ...cacheHeaders,
       });

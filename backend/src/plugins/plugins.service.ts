@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PluginRendererService, PluginLayout } from './plugin-renderer.service';
+import type { RenderFormat } from '../screen-designer/services/screen-renderer.service';
 import { EncryptionService } from '../common/services/encryption.service';
 import { OAuthService } from './oauth/oauth.service';
 import {
@@ -408,6 +409,7 @@ export class PluginsService {
     instanceId: number,
     layout: PluginLayout = 'full',
     mode: 'device' | 'preview' | 'einkPreview' = 'device',
+    format: RenderFormat = 'png',
   ): Promise<Buffer> {
     const instance = await this.findInstanceById(instanceId);
     const plugin = instance.plugin;
@@ -423,7 +425,7 @@ export class PluginsService {
       throw new NotFoundException(`Plugin ${plugin.slug} has no template for layout ${layout}`);
     }
 
-    return this.pluginRenderer.renderToPng(markup, locals, settings, width, height, mode);
+    return this.pluginRenderer.renderToPng(markup, locals, settings, width, height, mode, format);
   }
 
   private async renderPluginPlaceholder(plugin: any, width: number, height: number): Promise<Buffer> {
