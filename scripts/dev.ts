@@ -5,6 +5,7 @@ const root = join(import.meta.dir, '..');
 const backend = join(root, 'backend');
 const frontend = join(root, 'frontend');
 const singlePort = Bun.argv.includes('--single');
+const skipMcp = Bun.argv.includes('--no-mcp') || process.env.INKER_DEV_MCP === '0';
 
 const env = {
   ...process.env,
@@ -17,6 +18,7 @@ const env = {
 };
 
 type Child = ReturnType<typeof Bun.spawn>;
+type SpawnStdin = 'inherit' | 'pipe' | 'ignore';
 
 async function runOnce(name: string, args: string[], cwd: string) {
   const child = Bun.spawn(args, {
@@ -32,10 +34,11 @@ async function runOnce(name: string, args: string[], cwd: string) {
   }
 }
 
-function spawn(name: string, args: string[], cwd: string): Child {
+function spawn(name: string, args: string[], cwd: string, stdin: SpawnStdin = 'inherit'): Child {
   const child = Bun.spawn(args, {
     cwd,
     env,
+    stdin,
     stdout: 'inherit',
     stderr: 'inherit',
   });
@@ -100,6 +103,11 @@ if (!singlePort) {
     env.VITE_PORT,
     '--strictPort',
   ], frontend));
+}
+
+if (!skipMcp) {
+  console.log('Starting MCP server for local agent tooling');
+  children.push(spawn('mcp', ['bun', 'run', '--silent', 'mcp'], root, 'pipe'));
 }
 
 await new Promise(() => {});

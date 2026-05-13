@@ -55,6 +55,26 @@ bun run dev:single
 
 Open **http://localhost:3337**. This builds the frontend and serves it from the Nest backend.
 
+### MCP server
+
+Inker includes a local stdio MCP server for agent-driven CRUD over screen designs, widgets, data sources, custom widgets, and playlists:
+
+```bash
+bun run mcp
+```
+
+Example Codex/Claude-style command:
+
+```json
+{
+  "command": "bun",
+  "args": ["run", "mcp"],
+  "cwd": "/path/to/inker"
+}
+```
+
+The server uses the same SQLite default as the app (`backend/data/inker.db`) unless `DATABASE_URL` is set.
+
 If your Mac cannot expose port `3337` to the LAN, but a Raspberry Pi can, bring up the temporary SSH proxy:
 
 ```bash

@@ -41,6 +41,9 @@ export function PlaylistForm() {
 
   const [selectedScreenId, setSelectedScreenId] = useState<string>('');
   const [durationInput, setDurationInput] = useState<string>('60');
+  const [composerLayout, setComposerLayout] = useState<'2x2' | '2x1' | '1x2'>('2x2');
+  const [composerItems, setComposerItems] = useState<string[]>([]);
+  const [selectedComposerScreenId, setSelectedComposerScreenId] = useState<string>('');
 
   const { data: playlist, isLoading: isLoadingPlaylist } = useApi<Playlist>(
     async () => {
@@ -197,6 +200,8 @@ export function PlaylistForm() {
         screenId: screen.screenId,
         duration: screen.duration,
         order: screen.order,
+        kind: screen.kind,
+        config: screen.config,
       })),
     };
 
@@ -233,6 +238,35 @@ export function PlaylistForm() {
     }));
 
     setSelectedScreenId('');
+    setDurationInput('60');
+  };
+
+  const handleAddComposer = () => {
+    if (composerItems.length === 0) return;
+    const currentScreens = formData.screens || [];
+    const parsedDuration = Math.max(60, Number(durationInput) || 60);
+    const firstComposerScreen = getScreenOption(composerItems[0]);
+    const newComposer: PlaylistScreen = {
+      screenId: `composer-${Date.now()}`,
+      kind: 'composer',
+      duration: parsedDuration,
+      order: currentScreens.length,
+      config: {
+        name: 'Screen Grid',
+        layout: composerLayout,
+        items: composerItems,
+        width: firstComposerScreen?.width || 800,
+        height: firstComposerScreen?.height || 480,
+        gap: 8,
+      },
+    };
+
+    setFormData((prev) => ({
+      ...prev,
+      screens: [...(prev.screens || []), newComposer],
+    }));
+    setComposerItems([]);
+    setSelectedComposerScreenId('');
     setDurationInput('60');
   };
 
@@ -285,6 +319,7 @@ export function PlaylistForm() {
   };
 
   const getScreenName = (screenId: string) => {
+    if (screenId.startsWith('composer-')) return 'Screen Grid';
     const screen = availableScreens.find((s) => s.id === screenId);
     return screen?.name || screenId;
   };
@@ -451,6 +486,68 @@ export function PlaylistForm() {
                     </Button>
                   </div>
                 </div>
+              </div>
+
+              <div className="mb-4 p-4 rounded-lg border border-border-light bg-bg-muted space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-text-primary">Screen Composer</h4>
+                  <Select
+                    label=""
+                    value={composerLayout}
+                    onChange={(e) => setComposerLayout(e.target.value as '2x2' | '2x1' | '1x2')}
+                  >
+                    <option value="2x2">2×2</option>
+                    <option value="2x1">2×1</option>
+                    <option value="1x2">1×2</option>
+                  </Select>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <Select
+                      label="Add Slot"
+                      value={selectedComposerScreenId}
+                      onChange={(e) => setSelectedComposerScreenId(e.target.value)}
+                    >
+                      <option value="">Choose a screen</option>
+                      {availableScreens.map((screen) => (
+                        <option key={screen.id} value={screen.id}>{screen.name}</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!selectedComposerScreenId}
+                      onClick={() => {
+                        const maxSlots = composerLayout === '2x2' ? 4 : 2;
+                        if (selectedComposerScreenId && composerItems.length < maxSlots) {
+                          setComposerItems([...composerItems, selectedComposerScreenId]);
+                          setSelectedComposerScreenId('');
+                        }
+                      }}
+                    >
+                      Add Slot
+                    </Button>
+                    <Button type="button" disabled={composerItems.length === 0} onClick={handleAddComposer}>
+                      Add Grid
+                    </Button>
+                  </div>
+                </div>
+                {composerItems.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {composerItems.map((itemId, index) => (
+                      <button
+                        key={`${itemId}-${index}`}
+                        type="button"
+                        className="px-2 py-1 text-xs rounded bg-bg-card border border-border-light text-text-secondary"
+                        onClick={() => setComposerItems(composerItems.filter((_, i) => i !== index))}
+                      >
+                        {index + 1}. {getScreenName(itemId)}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Screens list */}

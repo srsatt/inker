@@ -292,9 +292,11 @@ export class DisplayService {
       ? `design-${currentScreen.screenDesign.id}`
       : currentScreen.screen
         ? `screen-${currentScreen.screen.id}`
-        : currentScreen.pluginInstance?.plugin
-          ? `plugin-${currentScreen.pluginInstance.id}`
-          : null;
+        : currentScreen.kind === 'composer'
+          ? `composer-${currentScreen.id}`
+          : currentScreen.pluginInstance?.plugin
+            ? `plugin-${currentScreen.pluginInstance.id}`
+            : null;
 
     // Update screen tracking when screen changes
     // screenStartedAt tracks when this screen began displaying (for duration-based rotation)
@@ -402,6 +404,41 @@ export class DisplayService {
         battery: updatedDevice.battery,
         wifi: updatedDevice.wifi,
       };
+    } else if (currentScreen.kind === 'composer') {
+      const timestamp = Date.now();
+      const queryParams = new URLSearchParams({
+        t: timestamp.toString(),
+        battery: (updatedDevice.battery ?? 0).toString(),
+        wifi: (updatedDevice.wifi ?? 0).toString(),
+        deviceName: device.name || 'Unknown',
+        firmwareVersion: device.firmwareVersion || 'Unknown',
+        macAddress: device.macAddress ? `XX:XX:XX:${device.macAddress.slice(-8)}` : 'Unknown',
+        format: imageFormat,
+      });
+      const renderUrl = `${apiUrl}/api/device-images/playlist-composer/${currentScreen.id}?${queryParams.toString()}`;
+      const dynamicFilename = `composer-${currentScreen.id}-${timestamp}.${imageFormat}`;
+
+      this.logger.debug(
+        `Serving playlist composer ${currentScreen.id} to device ${device.name} (refresh: ${effectiveRefreshRate}s)`,
+      );
+
+      return {
+        status: 0,
+        image_url: renderUrl,
+        filename: dynamicFilename,
+        image_url_timeout: 0,
+        image_data: undefined,
+        firmware_url: firmwareUrl,
+        update_firmware: !!firmwareUrl,
+        refresh_rate: effectiveRefreshRate,
+        reset_firmware: false,
+        special_function: '',
+        temperature_profile: 'default',
+        maximum_compatibility: screenChanged,
+        refresh_at: nextRefreshAt,
+        battery: updatedDevice.battery,
+        wifi: updatedDevice.wifi,
+      };
     } else if (currentScreen.pluginInstance?.plugin) {
       // Plugin instance - render via plugin engine
       const pluginInstance = currentScreen.pluginInstance;
@@ -483,8 +520,9 @@ export class DisplayService {
     const getItemScreenId = (item: any): string | null =>
       item.screenDesign ? `design-${item.screenDesign.id}`
         : item.screen ? `screen-${item.screen.id}`
+        : item.kind === 'composer' ? `composer-${item.id}`
         : item.pluginInstance?.plugin ? `plugin-${item.pluginInstance.id}`
-        : null;
+          : null;
 
     // Find the current item by lastScreenId
     let currentIndex = -1;

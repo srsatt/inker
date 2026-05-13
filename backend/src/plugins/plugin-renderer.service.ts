@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Liquid } from 'liquidjs';
 import * as sharp from 'sharp';
 import { ScreenRendererService, type RenderFormat } from '../screen-designer/services/screen-renderer.service';
-import { TRMNL_CSS } from './sync/trmnl-css';
+import { getTrmnlFrameworkCss } from './sync/trmnl-framework';
 
 export type PluginLayout = 'full' | 'half_horizontal' | 'half_vertical' | 'quadrant';
 
@@ -206,7 +206,7 @@ export class PluginRendererService {
 <meta charset="utf-8">
 <style>
   body { width: ${width}px; height: ${height}px; }
-  ${TRMNL_CSS}
+  ${getTrmnlFrameworkCss()}
 </style>
 </head>
 <body>

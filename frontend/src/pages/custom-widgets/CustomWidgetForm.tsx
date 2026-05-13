@@ -48,6 +48,16 @@ const DISPLAY_TYPES: { value: CustomWidgetDisplayType; label: string; descriptio
       </svg>
     ),
   },
+  {
+    value: 'framework',
+    label: 'Framework',
+    description: 'TRMNL classes with JSX-like values',
+    icon: (
+      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h18M5 5v14h14V5M8 9h8M8 13h5" />
+      </svg>
+    ),
+  },
 ];
 
 const FIELD_DISPLAY_TYPES: { value: FieldDisplayType; label: string; icon: React.ReactNode }[] = [
@@ -308,6 +318,10 @@ export function CustomWidgetForm() {
       }
     }
 
+    if (formData.displayType === 'framework' && !formData.template?.trim()) {
+      errors.push('Framework template is required');
+    }
+
     // Show errors if any
     if (errors.length > 0) {
       showNotification('error', errors.join('. '));
@@ -376,6 +390,8 @@ export function CustomWidgetForm() {
         scriptResult={scriptResult}
         template={formData.template}
         fontSize={24}
+        width={formData.minWidth || 150}
+        height={formData.minHeight || 80}
       />
     );
   }, [sampleData, formData.displayType, formData.config, formData.template, testingSource, scriptResult]);
@@ -1367,6 +1383,29 @@ export function CustomWidgetForm() {
                 </div>
               )}
 
+              {formData.displayType === 'framework' && (
+                <div className="space-y-4 p-4 bg-bg-muted rounded-lg">
+                  <h3 className="font-medium text-text-primary">TRMNL Framework Template</h3>
+                  <textarea
+                    value={formData.template || ''}
+                    onChange={(e) => setFormData({ ...formData, template: e.target.value })}
+                    rows={12}
+                    className="w-full px-3 py-2 border border-border-default rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent font-mono text-sm"
+                    placeholder={`<div class="screen screen--no-bleed">
+  <div class="view view--full">
+    <div class="layout">
+      <span class="title">{ $.title }</span>
+      <span class="value value--large">{ $.value }</span>
+    </div>
+  </div>
+</div>`}
+                  />
+                  <p className="text-xs text-text-muted">
+                    Use TRMNL classes and insert data with <code className="bg-bg-card px-1 rounded">{'{ $.field }'}</code>.
+                  </p>
+                </div>
+              )}
+
               {/* Note: Font settings (size, family, weight, color) are configured in the screen designer */}
 
               <div className="flex justify-between pt-4 border-t border-border-light">
@@ -1426,10 +1465,10 @@ export function CustomWidgetForm() {
             </div>
             <div className="p-8 bg-gradient-to-br from-bg-muted to-border-light min-h-[250px] flex items-center justify-center">
               <div
-                className="bg-bg-card rounded-lg shadow-lg p-6 flex items-center justify-center"
+                className="bg-bg-card rounded-lg shadow-lg overflow-hidden flex items-center justify-center"
                 style={{
-                  minWidth: formData.minWidth || 150,
-                  minHeight: formData.minHeight || 80,
+                  width: formData.minWidth || 150,
+                  height: formData.minHeight || 80,
                 }}
               >
                 {testingSource ? (

@@ -30,11 +30,11 @@ export class CreateCustomWidgetDto {
 
   @ApiProperty({
     example: 'value',
-    enum: ['value', 'list', 'script', 'grid'],
+    enum: ['value', 'list', 'script', 'grid', 'framework'],
     description: 'How to display the data',
   })
   @IsString()
-  @IsIn(['value', 'list', 'script', 'grid'])
+  @IsIn(['value', 'list', 'script', 'grid', 'framework'])
   displayType: string;
 
   @ApiPropertyOptional({

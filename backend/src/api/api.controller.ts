@@ -702,4 +702,56 @@ export class ApiController {
       }
     }
   }
+
+  @Get('device-images/playlist-composer/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Render a playlist composer grid to PNG (public, for devices)' })
+  @ApiResponse({
+    status: 200,
+    description: 'PNG image of the rendered playlist composer',
+    content: { 'image/png': {} },
+  })
+  async renderPlaylistComposerPublic(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('battery') battery: string,
+    @Query('wifi') wifi: string,
+    @Query('deviceName') deviceName: string,
+    @Query('firmwareVersion') firmwareVersion: string,
+    @Query('macAddress') macAddress: string,
+    @Query('mode') mode: string,
+    @Query('format') format: string,
+    @Query('preview') preview: string,
+    @Res() res: Response,
+  ) {
+    let renderMode: 'device' | 'preview' | 'einkPreview' = 'device';
+    if (mode === 'preview' || mode === 'einkPreview' || mode === 'device') {
+      renderMode = mode;
+    } else if (preview === 'true' || preview === '1') {
+      renderMode = 'preview';
+    }
+    const imageFormat = format === 'bmp' && renderMode !== 'preview' ? 'bmp' : 'png';
+    const deviceContext = {
+      battery: battery ? parseFloat(battery) : undefined,
+      wifi: wifi ? parseInt(wifi, 10) : undefined,
+      deviceName: deviceName || undefined,
+      firmwareVersion: firmwareVersion || undefined,
+      macAddress: macAddress || undefined,
+    };
+
+    const imageBuffer = await this.screenRendererService.renderPlaylistComposer(
+      id,
+      deviceContext,
+      renderMode,
+      imageFormat,
+    );
+
+    res.set({
+      'Content-Type': imageFormat === 'bmp' ? 'image/bmp' : 'image/png',
+      'Content-Length': imageBuffer.length,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+    res.send(imageBuffer);
+  }
 }

@@ -32,12 +32,12 @@ export class UpdateCustomWidgetDto {
 
   @ApiPropertyOptional({
     example: 'value',
-    enum: ['value', 'list', 'script', 'grid'],
+    enum: ['value', 'list', 'script', 'grid', 'framework'],
     description: 'How to display the data',
   })
   @IsOptional()
   @IsString()
-  @IsIn(['value', 'list', 'script', 'grid'])
+  @IsIn(['value', 'list', 'script', 'grid', 'framework'])
   displayType?: string;
 
   @ApiPropertyOptional({

@@ -54,6 +54,7 @@ export class PlaylistsService {
       const screenMap = new Map<string, { type: 'design' | 'regular'; id: number; order: number; duration: number }>();
 
       screens.forEach((screenData, i) => {
+        if (screenData.kind === 'composer') return;
         if (typeof screenData.screenId === 'string' && screenData.screenId.startsWith('design-')) {
           const designId = parseInt(screenData.screenId.replace('design-', ''), 10);
           if (!isNaN(designId)) {
@@ -101,6 +102,15 @@ export class PlaylistsService {
       // Build playlist items in a single transaction
       const itemsToCreate = screens
         .map((screenData, i) => {
+          if (screenData.kind === 'composer') {
+            return {
+              playlistId: playlist.id,
+              kind: 'composer',
+              config: (screenData.config || {}) as object,
+              order: screenData.order ?? i,
+              duration: screenData.duration ?? 60,
+            };
+          }
           const key = typeof screenData.screenId === 'string' && screenData.screenId.startsWith('design-')
             ? screenData.screenId
             : String(typeof screenData.screenId === 'string' ? parseInt(screenData.screenId, 10) : screenData.screenId);
@@ -229,6 +239,23 @@ export class PlaylistsService {
 
     // Transform items to screens array for frontend compatibility
     const screens = playlist.items.map((item) => {
+      if (item.kind === 'composer') {
+        const config = (item.config || {}) as Record<string, unknown>;
+        const childIds = Array.isArray(config.items) ? config.items : [];
+        return {
+          id: `composer-${item.id}`,
+          screenId: `composer-${item.id}`,
+          name: (config.name as string) || 'Screen Grid',
+          description: `${childIds.length} screens in ${(config.layout as string) || '2x2'} grid`,
+          thumbnailUrl: `/api/device-images/playlist-composer/${item.id}?preview=true`,
+          imageUrl: `/api/device-images/playlist-composer/${item.id}?preview=true`,
+          duration: item.duration,
+          order: item.order,
+          kind: 'composer',
+          config,
+          isDesigned: false,
+        };
+      }
       if (item.screenDesign) {
         // Generate preview URL for designed screens (preview=true skips e-ink processing)
         const previewUrl = `/api/device-images/design/${item.screenDesign.id}?preview=true`;
@@ -327,6 +354,7 @@ export class PlaylistsService {
         const screenMap = new Map<string, { type: 'design' | 'regular'; id: number; order: number; duration: number }>();
 
         screens.forEach((screenData, i) => {
+          if (screenData.kind === 'composer') return;
           if (typeof screenData.screenId === 'string' && screenData.screenId.startsWith('design-')) {
             const designId = parseInt(screenData.screenId.replace('design-', ''), 10);
             if (!isNaN(designId)) {
@@ -374,6 +402,15 @@ export class PlaylistsService {
         // Build playlist items in a single batch
         const itemsToCreate = screens
           .map((screenData, i) => {
+            if (screenData.kind === 'composer') {
+              return {
+                playlistId: id,
+                kind: 'composer',
+                config: (screenData.config || {}) as object,
+                order: screenData.order ?? i,
+                duration: screenData.duration ?? 60,
+              };
+            }
             const key = typeof screenData.screenId === 'string' && screenData.screenId.startsWith('design-')
               ? screenData.screenId
               : String(typeof screenData.screenId === 'string' ? parseInt(screenData.screenId, 10) : screenData.screenId);
@@ -433,6 +470,23 @@ export class PlaylistsService {
 
       // Transform items to screens array
       const transformedScreens = updatedPlaylistWithItems.items.map((item) => {
+        if (item.kind === 'composer') {
+          const config = (item.config || {}) as Record<string, unknown>;
+          const childIds = Array.isArray(config.items) ? config.items : [];
+          return {
+            id: `composer-${item.id}`,
+            screenId: `composer-${item.id}`,
+            name: (config.name as string) || 'Screen Grid',
+            description: `${childIds.length} screens in ${(config.layout as string) || '2x2'} grid`,
+            thumbnailUrl: `/api/device-images/playlist-composer/${item.id}?preview=true`,
+            imageUrl: `/api/device-images/playlist-composer/${item.id}?preview=true`,
+            duration: item.duration,
+            order: item.order,
+            kind: 'composer',
+            config,
+            isDesigned: false,
+          };
+        }
         if (item.screenDesign) {
           // Generate preview URL for designed screens (preview=true skips e-ink processing)
           const previewUrl = `/api/device-images/design/${item.screenDesign.id}?preview=true`;

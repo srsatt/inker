@@ -7,10 +7,16 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { DataSourcesService } from '../data-sources/data-sources.service';
 import { ScriptExecutorService } from './services/script-executor.service';
+import { FrameworkJsxExecutorService } from './services/framework-jsx-executor.service';
 import { CreateCustomWidgetDto } from './dto/create-custom-widget.dto';
 import { UpdateCustomWidgetDto } from './dto/update-custom-widget.dto';
 import { wrapListResponse, wrapPaginatedResponse } from '../common/utils/response.util';
 import { CUSTOM_WIDGET_TEMPLATE_OFFSET } from '../common/constants/widget.constants';
+
+interface CustomWidgetRenderContext {
+  width?: number;
+  height?: number;
+}
 
 /** Safe dataSource select — never exposes headers to the frontend */
 const SAFE_DATASOURCE_SELECT = {
@@ -30,6 +36,7 @@ export class CustomWidgetsService {
     private prisma: PrismaService,
     private dataSourcesService: DataSourcesService,
     private scriptExecutor: ScriptExecutorService,
+    private frameworkJsxExecutor?: FrameworkJsxExecutorService,
   ) {}
 
   /**
@@ -177,7 +184,7 @@ export class CustomWidgetsService {
    * Get widget with rendered data
    * Fetches latest data from source and applies template
    */
-  async getWithData(id: number, skipFetch = false) {
+  async getWithData(id: number, skipFetch = false, renderContext: CustomWidgetRenderContext = {}) {
     const customWidget = await this.prisma.customWidget.findUnique({
       where: { id },
       include: {
@@ -196,11 +203,12 @@ export class CustomWidgetsService {
     );
 
     // Render the data based on display type
-    const renderedContent = this.renderContent(
+    const renderedContent = await this.renderContent(
       customWidget.displayType,
       customWidget.template,
       customWidget.config as Record<string, unknown>,
       data,
+      renderContext,
     );
 
     return {
@@ -218,7 +226,8 @@ export class CustomWidgetsService {
     template: string | null,
     config: Record<string, unknown>,
     data: unknown,
-  ): string | string[] | Record<string, unknown> {
+    renderContext: CustomWidgetRenderContext = {},
+  ): string | string[] | Record<string, unknown> | Promise<string | string[] | Record<string, unknown>> {
     switch (displayType) {
       case 'value':
         return this.renderValue(config, data);
@@ -232,9 +241,61 @@ export class CustomWidgetsService {
       case 'grid':
         return this.renderGrid(config, data);
 
+      case 'framework':
+        return this.renderFramework(template, config, data, renderContext);
+
       default:
         return String(data);
     }
+  }
+
+  private renderFramework(
+    template: string | null,
+    config: Record<string, unknown>,
+    data: unknown,
+    renderContext: CustomWidgetRenderContext,
+  ): Record<string, unknown> | Promise<Record<string, unknown>> {
+    const markup = template?.trim();
+    if (!markup) {
+      return {
+        type: 'framework',
+        html: '<div class="layout"><span class="label">No framework template</span></div>',
+      };
+    }
+
+    if (this.shouldRenderFrameworkAsJsx(markup, config)) {
+      return this.renderFrameworkJsx(markup, data, renderContext);
+    }
+
+    const html = markup.replace(/\{([^{}\n]+)\}/g, (_match, expression: string) => {
+      const result = this.scriptExecutor.evaluateExpression(expression.trim(), data);
+      if (!result.success) return '';
+      const value = result.value;
+      if (value === null || value === undefined) return '';
+      return this.escapeHtml(String(value));
+    });
+
+    return { type: 'framework', html };
+  }
+
+  private shouldRenderFrameworkAsJsx(markup: string, config: Record<string, unknown>): boolean {
+    if (config.templateMode === 'jsx' || config.frameworkTemplateMode === 'jsx') return true;
+    return /\breturn\s*</.test(markup)
+      || /\breturn\s*\(/.test(markup)
+      || /^\s*(const|let|var|async|return)\b/.test(markup);
+  }
+
+  private async renderFrameworkJsx(
+    markup: string,
+    data: unknown,
+    renderContext: CustomWidgetRenderContext,
+  ): Promise<Record<string, unknown>> {
+    if (!this.frameworkJsxExecutor) return { type: 'framework', html: '' };
+    const result = await this.frameworkJsxExecutor.execute(markup, data, renderContext);
+    if (!result.success) {
+      return { type: 'framework-error', error: result.error || 'Framework template failed' };
+    }
+    return { type: 'framework-jsx', node: result.node };
   }
 
   /**
@@ -503,6 +564,15 @@ export class CustomWidgetsService {
     }
 
     return current;
+  }
+
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   /**

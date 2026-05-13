@@ -105,6 +105,8 @@ model PlaylistItem {
   playlistId     Int      @map("playlist_id")
   screenId       Int?     @map("screen_id")
   screenDesignId Int?     @map("screen_design_id")
+  kind           String   @default("screen")
+  config         Json?
   order          Int      @default(0)
   duration       Int      @default(60) // seconds
   createdAt      DateTime @default(now()) @map("created_at")

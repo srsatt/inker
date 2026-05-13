@@ -90,6 +90,10 @@ export class ScriptExecutorService {
     }
   }
 
+  evaluateExpression(expression: string, data: unknown): ScriptResult {
+    return this.execute(`return (${expression});`, data, 'value');
+  }
+
   /**
    * Validate script for dangerous patterns and size limits.
    * This is defense-in-depth — the primary protection is VM-realm isolation.

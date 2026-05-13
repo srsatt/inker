@@ -13,6 +13,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:cov": "bun test --coverage",
+    "mcp": "bun run scripts/with-sqlite-env.ts bun run src/mcp/server.ts",
     "prisma:generate": "bun run scripts/with-sqlite-env.ts bunx prisma generate",
     "prisma:push": "bun run scripts/with-sqlite-env.ts bunx prisma db push",
     "prisma:migrate": "bun run scripts/with-sqlite-env.ts bunx prisma migrate dev",
@@ -49,7 +50,9 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.1.14",
     "rxjs": "^7.8.1",
+    "satori": "^0.26.0",
     "sharp": "^0.33.1",
+    "ultrahtml": "^1.6.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {

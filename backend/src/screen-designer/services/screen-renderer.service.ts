@@ -20,7 +20,17 @@ import QRCode from 'qrcode';
 import { validateUrlSafety, UrlSafetyOptions } from '../../common/utils/url-safety';
 import { encode1BitBmpFromGrayscale } from '../../common/utils/bmp.util';
 import { SETTING_KEYS } from '../../settings/settings.service';
+import { getTrmnlFrameworkCss } from '../../plugins/sync/trmnl-framework';
 import type { ScreenDesign, ScreenWidget, WidgetTemplate } from '@prisma/client';
+import {
+  jsx,
+  renderDocumentHtml,
+  renderJsxToHtml,
+  type JsxElement,
+  type ScreenRenderDocument,
+} from './screen-render-document';
+import { ScreenComposerService } from './screen-composer.service';
+import { ScreenRenderEngine } from './screen-render-engine.interface';
 
 type WidgetWithTemplate = ScreenWidget & { template: WidgetTemplate };
 type ScreenDesignWithWidgets = ScreenDesign & { widgets: WidgetWithTemplate[] };
@@ -46,17 +56,57 @@ export interface DeviceContext {
 export type RenderMode = 'device' | 'preview' | 'einkPreview';
 export type RenderFormat = 'png' | 'bmp';
 
+export interface RendererFont {
+  family: string;
+  weight: number;
+  data: Buffer;
+}
+
+export abstract class ScreenRendererService {
+  abstract renderScreenDesign(
+    screenDesignId: number,
+    deviceContext?: DeviceContext,
+    mode?: RenderMode | boolean,
+    format?: RenderFormat,
+  ): Promise<Buffer>;
+
+  abstract renderPreview(screenDesignId: number): Promise<Buffer>;
+
+  abstract renderPlaylistComposer(
+    playlistItemId: number,
+    deviceContext?: DeviceContext,
+    mode?: RenderMode | boolean,
+    format?: RenderFormat,
+  ): Promise<Buffer>;
+
+  abstract renderHtmlToPng(html: string, width: number, height: number): Promise<Buffer>;
+
+  abstract renderUrlToPng(url: string, width: number, height: number): Promise<Buffer>;
+
+  abstract getGitHubStars(owner: string, repo: string): Promise<{ stars: number; name: string } | null>;
+
+  abstract applyEinkProcessing(
+    canvas: Sharp,
+    width: number,
+    height: number,
+    negate: boolean,
+    format?: RenderFormat,
+  ): Promise<Buffer>;
+}
+
 /**
- * Screen Renderer Service
+ * Puppeteer Screen Renderer Service
  * Renders screen designs with widgets to PNG images for e-ink devices
  * Uses Puppeteer for 1:1 HTML/CSS rendering matching the frontend
  */
 @Injectable()
-export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
-  private readonly logger = new Logger(ScreenRendererService.name);
+export class PuppeteerScreenRendererService implements ScreenRendererService, ScreenRenderEngine, OnModuleDestroy, OnModuleInit {
+  protected readonly logger = new Logger(PuppeteerScreenRendererService.name);
+  protected readonly rasterizerName: string = 'Puppeteer';
   private browser: Browser | null = null;
   private fontsBase64: Record<string, string> = {};
   private fontStyleTag: string = '';
+  protected rendererFonts: RendererFont[] = [];
 
   // GitHub API cache to reduce rate limit usage (5 minute TTL)
   private githubCache: Map<string, { data: { stars: number; name: string }; timestamp: number }> = new Map();
@@ -73,6 +123,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     private customWidgetsService: CustomWidgetsService,
     private configService: ConfigService,
     private settingsService: SettingsService,
+    private readonly screenComposer: ScreenComposerService,
   ) {}
 
   private async getUrlSafetyOptions(): Promise<UrlSafetyOptions> {
@@ -106,23 +157,23 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
 
       const fontFiles = [
         { name: 'Inter-Regular', weight: 400, family: 'Inter' },
-        { name: 'Inter-Medium', weight: 500, family: 'Inter' },
-        { name: 'Inter-SemiBold', weight: 600, family: 'Inter' },
         { name: 'Inter-Bold', weight: 700, family: 'Inter' },
         { name: 'RobotoMono-Regular', weight: 400, family: 'Roboto Mono' },
-        { name: 'RobotoMono-Medium', weight: 500, family: 'Roboto Mono' },
-        { name: 'RobotoMono-Bold', weight: 700, family: 'Roboto Mono' },
-        { name: 'Merriweather-Regular', weight: 400, family: 'Merriweather' },
-        { name: 'Merriweather-Bold', weight: 700, family: 'Merriweather' },
       ];
 
       const fontFaces: string[] = [];
+      const rendererFonts: RendererFont[] = [];
 
       for (const font of fontFiles) {
         const fontPath = path.join(fontsDir, `${font.name}.woff2`);
         if (fs.existsSync(fontPath)) {
           const fontData = fs.readFileSync(fontPath);
           this.fontsBase64[font.name] = fontData.toString('base64');
+          rendererFonts.push({
+            family: font.family,
+            weight: font.weight,
+            data: fontData,
+          });
 
           fontFaces.push(`
             @font-face {
@@ -139,6 +190,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       }
 
       this.fontStyleTag = `<style>${fontFaces.join('\n')}</style>`;
+      this.rendererFonts = rendererFonts;
       this.logger.log(`Loaded ${Object.keys(this.fontsBase64).length} fonts for rendering`);
     } catch (error) {
       this.logger.error('Failed to load fonts:', error);
@@ -277,6 +329,106 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       .toBuffer();
 
     return thumbnail;
+  }
+
+  async renderPlaylistComposer(
+    playlistItemId: number,
+    deviceContext?: DeviceContext,
+    mode: RenderMode | boolean = 'device',
+    format: RenderFormat = 'png',
+  ): Promise<Buffer> {
+    const renderMode: RenderMode = typeof mode === 'boolean' ? (mode ? 'preview' : 'device') : mode;
+    const item = await this.prisma.playlistItem.findUnique({ where: { id: playlistItemId } });
+    if (!item || item.kind !== 'composer') {
+      throw new NotFoundException('Playlist composer not found');
+    }
+
+    const config = (item.config || {}) as Record<string, any>;
+    const entries = Array.isArray(config.items) ? config.items.map(String).filter(Boolean) : [];
+    if (entries.length === 0) {
+      throw new NotFoundException('Playlist composer has no screens');
+    }
+
+    const width = Number(config.width) || 800;
+    const height = Number(config.height) || 480;
+    const layout = config.layout === '1x2' ? { cols: 1, rows: 2 }
+      : config.layout === '2x1' ? { cols: 2, rows: 1 }
+        : { cols: 2, rows: 2 };
+    const gap = Math.max(0, Number(config.gap) || 8);
+    const background = this.parseColor(config.background || '#FFFFFF');
+
+    const cellWidth = Math.floor((width - gap * (layout.cols + 1)) / layout.cols);
+    const cellHeight = Math.floor((height - gap * (layout.rows + 1)) / layout.rows);
+    let canvas = sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background,
+      },
+    });
+
+    const composites: any[] = [];
+    for (let i = 0; i < Math.min(entries.length, layout.cols * layout.rows); i++) {
+      const image = await this.renderComposerEntry(entries[i], cellWidth, cellHeight, deviceContext);
+      composites.push({
+        input: image,
+        left: gap + (i % layout.cols) * (cellWidth + gap),
+        top: gap + Math.floor(i / layout.cols) * (cellHeight + gap),
+      });
+    }
+
+    const composed = await canvas.composite(composites).png().toBuffer();
+    if (renderMode === 'preview') {
+      return composed;
+    }
+
+    return this.applyEinkProcessing(sharp(composed), width, height, renderMode === 'device', format);
+  }
+
+  private async renderComposerEntry(
+    entryId: string,
+    width: number,
+    height: number,
+    deviceContext?: DeviceContext,
+  ): Promise<Buffer> {
+    let imageBuffer: Buffer;
+    if (entryId.startsWith('design-')) {
+      const designId = parseInt(entryId.replace('design-', ''), 10);
+      imageBuffer = await this.renderScreenDesign(designId, deviceContext, 'preview', 'png');
+    } else {
+      const screenId = parseInt(entryId, 10);
+      const screen = await this.prisma.screen.findUnique({ where: { id: screenId } });
+      if (!screen) {
+        return this.renderPlaceholderWidget(width, height, 'Missing');
+      }
+      imageBuffer = await this.loadScreenImage(screen.imageUrl);
+    }
+
+    return sharp(imageBuffer)
+      .resize(width, height, {
+        fit: 'cover',
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      })
+      .png()
+      .toBuffer();
+  }
+
+  private async loadScreenImage(imageUrl: string): Promise<Buffer> {
+    if (imageUrl.startsWith('/uploads/')) {
+      return fs.promises.readFile(this.resolveUploadPath(imageUrl));
+    }
+
+    await validateUrlSafety(imageUrl, await this.getUrlSafetyOptions());
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(imageUrl, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return Buffer.from(await response.arrayBuffer());
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**
@@ -2350,7 +2502,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       return `data:image/png;base64,${base64}`;
     } catch (error) {
       this.logger.warn(`Failed to process image for e-ink from ${url}: ${error instanceof Error ? error.message : String(error)}`);
-      return ScreenRendererService.FALLBACK_PIXEL;
+      return PuppeteerScreenRendererService.FALLBACK_PIXEL;
     }
   }
 
@@ -2557,17 +2709,31 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
   }
 
   // ============================================================
-  // HTML-BASED RENDERING (Pixel-Perfect)
-  // Uses Puppeteer to render HTML matching frontend WidgetRenderer.tsx
+  // DOCUMENT-BASED RENDERING
+  // Builds one JSX-style document and lets concrete rasterizers produce pixels.
   // ============================================================
 
   /**
-   * Render screen design using HTML/CSS + Puppeteer for pixel-perfect output
-   * This matches exactly what the frontend shows in the designer
+   * Render screen design from the shared JSX-style document.
    */
   async renderDesignAsHtml(screenDesign: ScreenDesignWithWidgets, deviceContext?: DeviceContext): Promise<Buffer> {
-    const { width, height, background, widgets } = screenDesign;
     const startTime = Date.now();
+    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext, this.fontStyleTag);
+    const htmlGenTime = Date.now();
+    this.logger.debug(`  HTML generation took ${htmlGenTime - startTime}ms`);
+
+    const buffer = await this.rasterizeDocument(renderDocument);
+    const screenshotTime = Date.now();
+    this.logger.debug(`  ${this.rasterizerName} rasterization took ${screenshotTime - htmlGenTime}ms (total: ${screenshotTime - startTime}ms)`);
+
+    return buffer;
+  }
+
+  protected async buildScreenRenderDocument(
+    screenDesign: ScreenDesignWithWidgets,
+    deviceContext?: DeviceContext,
+  ): Promise<ScreenRenderDocument> {
+    const { width, height, background, widgets } = screenDesign;
 
     // Log widget positions for debugging
     this.logger.debug(`Rendering ${widgets.length} widgets for screen ${screenDesign.id} (${width}x${height})`);
@@ -2593,46 +2759,40 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       }
     }
 
-    // Generate HTML for all widgets (custom widget data is already cached)
-    const widgetsHtml = await Promise.all(
-      widgets.map(widget => this.generateWidgetHtml(widget, deviceContext))
+    // Generate JSX-style IR for all widgets (custom widget data is already cached)
+    const widgetNodes = await Promise.all(
+      widgets.map(widget => this.generateWidgetNode(widget, deviceContext))
     );
-    const htmlGenTime = Date.now();
-    this.logger.debug(`  HTML generation took ${htmlGenTime - startTime}ms`);
 
-    // Create full HTML page matching frontend structure
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  ${this.fontStyleTag}
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: ${width}px;
-      height: ${height}px;
-      background: ${this.sanitizeColor(background || '#ffffff', '#ffffff')};
-      position: relative;
-      overflow: hidden;
-      font-family: sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      text-rendering: geometricPrecision;
-    }
-    .widget {
-      position: absolute;
-      display: flex;
-      align-items: center;
-      overflow: hidden;
-    }
-  </style>
-</head>
-<body>
-  ${widgetsHtml.join('\n  ')}
-</body>
-</html>`;
+    const root = jsx(
+      'div',
+      {
+        style: {
+          width: `${width}px`,
+          height: `${height}px`,
+          background: this.sanitizeColor(background || '#ffffff', '#ffffff'),
+          display: 'flex',
+          position: 'relative',
+          overflow: 'hidden',
+          fontFamily: 'sans-serif',
+          boxSizing: 'border-box',
+        },
+      },
+      ...widgetNodes,
+    );
 
+    const rootHtml = renderJsxToHtml(root);
+
+    return {
+      width,
+      height,
+      root,
+      rootHtml,
+      html: renderDocumentHtml(root, this.fontStyleTag),
+    };
+  }
+
+  protected async rasterizeDocument(renderDocument: ScreenRenderDocument): Promise<Buffer> {
     // Render with Puppeteer
     const browser = await this.getBrowser();
     const page = await browser.newPage();
@@ -2649,8 +2809,8 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
         }
       });
 
-      await page.setViewport({ width, height, deviceScaleFactor: 1 });
-      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.setViewport({ width: renderDocument.width, height: renderDocument.height, deviceScaleFactor: 1 });
+      await page.setContent(renderDocument.html, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
       // Wait for fonts and all images to load (with timeout fallback)
       await Promise.race([
@@ -2675,10 +2835,8 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
 
       const screenshot = await page.screenshot({
         type: 'png',
-        clip: { x: 0, y: 0, width, height },
+        clip: { x: 0, y: 0, width: renderDocument.width, height: renderDocument.height },
       });
-      const screenshotTime = Date.now();
-      this.logger.debug(`  Puppeteer screenshot took ${screenshotTime - htmlGenTime}ms (total: ${screenshotTime - startTime}ms)`);
 
       return Buffer.from(screenshot);
     } finally {
@@ -2686,10 +2844,21 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  renderJsx(document: ScreenRenderDocument): Promise<Buffer> {
+    return this.rasterizeDocument(document);
+  }
+
   /**
    * Generate HTML for a single widget matching frontend WidgetRenderer.tsx
    */
   private async generateWidgetHtml(widget: WidgetWithTemplate, deviceContext?: DeviceContext): Promise<string> {
+    return renderJsxToHtml(await this.generateWidgetNode(widget, deviceContext));
+  }
+
+  /**
+   * Generate JSX-style IR for a single widget.
+   */
+  private async generateWidgetNode(widget: WidgetWithTemplate, deviceContext?: DeviceContext): Promise<JsxElement> {
     const { x, y, width, height, config, template } = widget;
     const widgetConfig = config as Record<string, any>;
 
@@ -2761,14 +2930,18 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
         content = `<div style="color: #999; font-size: 12px;">Unknown: ${template.name}</div>`;
     }
 
-    // Handle rotation, z-index, and opacity
+    // Handle rotation and opacity. Stacking follows the already-sorted widget order.
     const rotation = (widget as any).rotation || 0;
-    const zIndex = widget.zIndex || 0;
     const opacity = (widgetConfig.opacity as number) ?? 100;
     const rotationStyle = rotation !== 0 ? `transform: rotate(${rotation}deg); transform-origin: center center;` : '';
     const opacityStyle = opacity < 100 ? `opacity: ${opacity / 100};` : '';
+    const baseStyle = `position: absolute; display: flex; align-items: center; overflow: hidden; box-sizing: border-box; left: ${x}px; top: ${y}px; width: ${width}px; height: ${height}px;`;
 
-    return `<div class="widget" style="left: ${x}px; top: ${y}px; width: ${width}px; height: ${height}px; z-index: ${zIndex}; ${opacityStyle} ${extraStyles} ${rotationStyle}">${content}</div>`;
+    return jsx('div', {
+      className: 'widget',
+      style: `${baseStyle} ${opacityStyle} ${extraStyles} ${rotationStyle}`,
+      dangerouslySetInnerHTML: { __html: content },
+    });
   }
 
   // ----- Clock Widget -----
@@ -3235,6 +3408,9 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       }
 
       if (typeof renderedContent === 'object' && renderedContent !== null) {
+        if ('type' in renderedContent && renderedContent.type === 'framework') {
+          return `<style>${getTrmnlFrameworkCss()}</style><div style="width: 100%; height: 100%; overflow: hidden;">${String((renderedContent as Record<string, unknown>).html || '')}</div>`;
+        }
         // Grid display
         if ('type' in renderedContent && renderedContent.type === 'grid') {
           return await this.generateGridHtml(renderedContent as any, fontSize, fontFamily, config.cellOverrides || {});
@@ -3303,6 +3479,10 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
     return `<div style="display: grid; grid-template-columns: repeat(${gridCols}, 1fr); grid-template-rows: repeat(${gridRows}, 1fr); gap: ${gridGap}px; width: 100%; height: 100%;">${cellsHtml.join('')}</div>`;
   }
 
+  protected getRendererFonts(): RendererFont[] {
+    return this.rendererFonts;
+  }
+
   // 1x1 transparent pixel fallback — prevents Puppeteer from fetching unreachable URLs
   private static readonly FALLBACK_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
@@ -3335,7 +3515,7 @@ export class ScreenRendererService implements OnModuleDestroy, OnModuleInit {
       return `data:image/png;base64,${processedBuffer.toString('base64')}`;
     } catch (error) {
       this.logger.warn(`Failed to process image for e-ink HTML from ${url}: ${error instanceof Error ? error.message : String(error)}`);
-      return ScreenRendererService.FALLBACK_PIXEL;
+      return PuppeteerScreenRendererService.FALLBACK_PIXEL;
     }
   }
 }

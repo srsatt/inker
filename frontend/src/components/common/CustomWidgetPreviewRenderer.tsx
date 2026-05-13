@@ -29,6 +29,8 @@ interface CustomWidgetPreviewRendererProps {
   } | null;
   template?: string;
   fontSize?: number;
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -98,6 +100,23 @@ function renderFieldValue(value: unknown, fieldType: FieldDisplayType, fontSize:
   }
 }
 
+function renderFrameworkTemplate(template: string, data: unknown, width: number, height: number): string {
+  if (!template) return '';
+  const widget = {
+    width,
+    height,
+  };
+  return template.replace(/\{([^{}\n]+)\}/g, (_match, expression: string) => {
+    try {
+      const fn = new Function('$', 'widget', `return (${expression});`);
+      const value = fn(data, widget);
+      return value === null || value === undefined ? '' : String(value);
+    } catch {
+      return '';
+    }
+  });
+}
+
 export function CustomWidgetPreviewRenderer({
   displayType,
   config,
@@ -105,6 +124,8 @@ export function CustomWidgetPreviewRenderer({
   scriptResult,
   template,
   fontSize = 24,
+  width = 150,
+  height = 80,
 }: CustomWidgetPreviewRendererProps) {
   if (!sampleData) {
     return (
@@ -347,6 +368,23 @@ export function CustomWidgetPreviewRenderer({
               );
             })}
           </div>
+        );
+      }
+
+      case 'framework': {
+        const html = renderFrameworkTemplate(template || '', sampleData, width, height);
+        return (
+          <div
+            className="w-full h-full overflow-hidden text-left"
+            style={{
+              width: `${width}px`,
+              height: `${height}px`,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              boxSizing: 'border-box',
+            }}
+            dangerouslySetInnerHTML={{ __html: html || '<div class="text-text-placeholder text-sm">No template configured</div>' }}
+          />
         );
       }
 

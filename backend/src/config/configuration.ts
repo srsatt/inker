@@ -61,6 +61,10 @@ export const configuration = () => ({
     firmwareDir: process.env.FIRMWARE_DIR || './uploads/firmware',
   },
 
+  renderer: {
+    engine: process.env.SCREEN_RENDERER_ENGINE || 'puppeteer',
+  },
+
   device: {
     apiKeyLength: 32,
     pollingInterval: parseInt(process.env.DEVICE_POLLING_INTERVAL || '60000', 10), // 1 minute

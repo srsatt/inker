@@ -7,6 +7,13 @@ class PlaylistScreenDto {
   screenId: string;
 
   @IsOptional()
+  @IsString()
+  kind?: string;
+
+  @IsOptional()
+  config?: Record<string, unknown>;
+
+  @IsOptional()
   duration?: number;
 
   @IsOptional()

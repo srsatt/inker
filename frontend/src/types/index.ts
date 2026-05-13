@@ -102,6 +102,8 @@ export interface PlaylistScreen {
   screenId: string;
   duration: number; // in seconds
   order: number;
+  kind?: 'screen' | 'composer';
+  config?: Record<string, unknown>;
 }
 
 export interface PlaylistScreenWithDetails extends PlaylistScreen {
@@ -195,7 +197,7 @@ export interface TestUrlRequest {
 export type FieldDisplayType = 'text' | 'number' | 'image' | 'link' | 'date';
 
 // Custom Widget types
-export type CustomWidgetDisplayType = 'value' | 'list' | 'script' | 'grid';
+export type CustomWidgetDisplayType = 'value' | 'list' | 'script' | 'grid' | 'framework';
 
 // Grid cell configuration for grid display type
 export type CellAlignment = 'left' | 'center' | 'right';

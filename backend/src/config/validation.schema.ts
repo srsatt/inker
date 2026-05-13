@@ -19,6 +19,9 @@ export const validationSchema = Joi.object({
   SCREENS_DIR: Joi.string().default('./uploads/screens'),
   FIRMWARE_DIR: Joi.string().default('./uploads/firmware'),
 
+  // Rendering
+  SCREEN_RENDERER_ENGINE: Joi.string().valid('puppeteer', 'satori').default('puppeteer'),
+
   // Device configuration
   DEVICE_POLLING_INTERVAL: Joi.number().default(60000),
   DEVICE_OFFLINE_THRESHOLD: Joi.number().default(300000),
