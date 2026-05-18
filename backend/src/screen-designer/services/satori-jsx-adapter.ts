@@ -60,17 +60,12 @@ function ultraHtmlNodeToSatori(node: UltraHtmlNode): any {
 }
 
 function ensureDisplayForSatori(type: string, props: Record<string, any>) {
-  if (type !== 'div' || countChildren(props.children) === 0) return;
+  if (type !== 'div') return;
   props.style = props.style || {};
   if (!props.style.display) {
     props.style.display = 'flex';
     props.style.flexDirection = 'column';
   }
-}
-
-function countChildren(children: any): number {
-  if (children === null || children === undefined || children === '') return 0;
-  return Array.isArray(children) ? children.length : 1;
 }
 
 function styleToObject(style: Record<string, any> | string): Record<string, any> {
@@ -88,7 +83,9 @@ function styleToObject(style: Record<string, any> | string): Record<string, any>
 }
 
 function normalize(children: any[]): any {
-  const normalized = children.filter(child => child !== null && child !== undefined && child !== '');
+  const normalized = children
+    .filter(child => child !== null && child !== undefined && child !== '')
+    .filter(child => typeof child !== 'string' || child.trim() !== '');
   if (normalized.length === 0) return [];
   if (normalized.length === 1) return normalized[0];
   return normalized;

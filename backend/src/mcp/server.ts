@@ -1,9 +1,12 @@
 import { PrismaClient } from '@prisma/client';
+import { FrameworkJsxExecutorService } from '../custom-widgets/services/framework-jsx-executor.service';
+import { formatSatoriLintIssues, lintSatoriNode } from '../screen-designer/services/satori-jsx-linter';
 
 type JsonObject = Record<string, any>;
 type ToolHandler = (args: JsonObject) => Promise<unknown>;
 
 const prisma = new PrismaClient();
+const frameworkJsxExecutor = new FrameworkJsxExecutorService({ get: async () => 'false' } as any);
 
 const textDecoder = new TextDecoder();
 let inputBuffer = Buffer.alloc(0);
@@ -44,6 +47,151 @@ function asInt(value: unknown, name: string): number {
 
 function cleanUndefined<T extends JsonObject>(data: T): T {
   return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) as T;
+}
+
+function extractWithJsonPath(data: unknown, path?: unknown): unknown {
+  if (!path || path === '$') return data;
+
+  const cleanPath = String(path).replace(/^\$\.?/, '');
+  const parts = cleanPath.split(/\.|\[|\]/).filter(Boolean);
+  let current = data;
+
+  for (const part of parts) {
+    if (current === null || current === undefined) return null;
+
+    if (part === '*' && Array.isArray(current)) return current;
+
+    if (Array.isArray(current)) {
+      const index = Number.parseInt(part, 10);
+      current = Number.isNaN(index)
+        ? current.map((item) => typeof item === 'object' && item !== null ? (item as JsonObject)[part] : undefined)
+        : current[index];
+    } else if (typeof current === 'object') {
+      current = (current as JsonObject)[part];
+    } else {
+      return null;
+    }
+  }
+
+  return current;
+}
+
+async function fetchDataSourceForDebug(id: number, cache: boolean) {
+  const dataSource = await prisma.dataSource.findUnique({ where: { id } });
+  if (!dataSource) throw new Error('Data source not found');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  const startedAt = new Date();
+
+  try {
+    const response = await fetch(dataSource.url, {
+      method: dataSource.method,
+      headers: (dataSource.headers || {}) as Record<string, string>,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const contentType = response.headers.get('content-type') || '';
+    let parsed: unknown = text;
+
+    if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        id,
+        name: dataSource.name,
+        url: dataSource.url,
+        status: response.status,
+        statusText: response.statusText,
+        contentType,
+        body: parsed,
+        fetchedAt: startedAt.toISOString(),
+      };
+    }
+
+    const data = dataSource.type === 'json' ? extractWithJsonPath(parsed, dataSource.jsonPath) : parsed;
+    const result = {
+      ok: true,
+      id,
+      name: dataSource.name,
+      url: dataSource.url,
+      status: response.status,
+      statusText: response.statusText,
+      contentType,
+      jsonPath: dataSource.jsonPath,
+      data,
+      fetchedAt: startedAt.toISOString(),
+    };
+
+    if (cache) {
+      await prisma.dataSource.update({
+        where: { id },
+        data: {
+          lastData: data as any,
+          lastFetchedAt: startedAt,
+          lastError: null,
+        },
+      });
+    }
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      id,
+      name: dataSource.name,
+      url: dataSource.url,
+      error: message,
+      fetchedAt: startedAt.toISOString(),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function shouldValidateFrameworkWidget(displayType?: unknown, template?: unknown, config?: unknown): boolean {
+  if (displayType !== 'framework') return false;
+  const markup = String(template || '').trim();
+  if (!markup) return false;
+  const widgetConfig = (config || {}) as JsonObject;
+  return widgetConfig.templateMode === 'jsx'
+    || widgetConfig.frameworkTemplateMode === 'jsx'
+    || /\breturn\s*</.test(markup)
+    || /\breturn\s*\(/.test(markup)
+    || /^\s*(const|let|var|async|return)\b/.test(markup);
+}
+
+async function validateFrameworkWidgetTemplate(args: JsonObject, existing?: JsonObject | null) {
+  const displayType = args.displayType ?? existing?.displayType;
+  const template = args.template ?? existing?.template;
+  const config = args.config ?? existing?.config ?? {};
+  if (!shouldValidateFrameworkWidget(displayType, template, config)) return;
+
+  const dataSourceId = args.dataSourceId ?? existing?.dataSourceId;
+  const dataSource = dataSourceId !== undefined
+    ? await prisma.dataSource.findUnique({ where: { id: asInt(dataSourceId, 'dataSourceId') } })
+    : null;
+  const sampleData = dataSource?.lastData ?? [];
+  const result = await frameworkJsxExecutor.execute(String(template || ''), sampleData, {
+    width: Number(args.minWidth ?? existing?.minWidth ?? 540),
+    height: Number(args.minHeight ?? existing?.minHeight ?? 330),
+  });
+  if (!result.success) {
+    throw new Error(`Framework JSX validation failed: ${result.error || 'Unknown error'}`);
+  }
+
+  const lintIssues = lintSatoriNode(result.node as any);
+  if (lintIssues.length > 0) {
+    throw new Error(`Satori JSX lint failed:\n${formatSatoriLintIssues(lintIssues)}`);
+  }
 }
 
 async function resolveWidgetTemplate(args: JsonObject) {
@@ -343,7 +491,22 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
 
   update_data_source: {
     description: 'Update a data source.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'integer' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        type: { type: 'string', enum: ['json', 'rss'] },
+        url: { type: 'string' },
+        method: { type: 'string', enum: ['GET', 'POST'] },
+        headers: { type: 'object' },
+        refreshInterval: { type: 'integer' },
+        jsonPath: { type: 'string' },
+        isActive: { type: 'boolean' },
+      },
+    },
     async handler(args) {
       const id = asInt(args.id, 'id');
       return prisma.dataSource.update({
@@ -373,6 +536,21 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
     },
   },
 
+  fetch_data_source: {
+    description: 'Fetch a data source now for debugging. Returns response status and body on failures; optionally caches successful data.',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'integer' },
+        cache: { type: 'boolean', default: false },
+      },
+    },
+    async handler(args) {
+      return fetchDataSourceForDebug(asInt(args.id, 'id'), args.cache === true);
+    },
+  },
+
   create_custom_widget: {
     description: 'Create a custom widget backed by a data source. displayType supports value, list, script, grid, framework.',
     inputSchema: {
@@ -390,6 +568,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
       },
     },
     async handler(args) {
+      await validateFrameworkWidgetTemplate(args);
       return prisma.customWidget.create({
         data: {
           name: String(args.name),
@@ -420,9 +599,26 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
 
   update_custom_widget: {
     description: 'Update a custom widget.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'integer' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        dataSourceId: { type: 'integer' },
+        displayType: { type: 'string', enum: ['value', 'list', 'script', 'grid', 'framework'] },
+        template: { type: 'string' },
+        config: { type: 'object' },
+        minWidth: { type: 'integer' },
+        minHeight: { type: 'integer' },
+      },
+    },
     async handler(args) {
       const id = asInt(args.id, 'id');
+      const existing = await prisma.customWidget.findUnique({ where: { id } });
+      if (!existing) throw new Error('Custom widget not found');
+      await validateFrameworkWidgetTemplate(args, existing as JsonObject);
       return prisma.customWidget.update({
         where: { id },
         data: cleanUndefined({

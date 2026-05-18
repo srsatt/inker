@@ -6,6 +6,12 @@ import { ApiSettings } from '../../components/settings/ApiSettings';
 import { Card } from '../../components/common';
 import { settingsService } from '../../services/api';
 import { useNotification } from '../../contexts/NotificationContext';
+import type { EinkDitheringMode, EinkRenderingConfig } from '../../types';
+
+const DEFAULT_EINK_RENDERING: EinkRenderingConfig = {
+  ditheringMode: 'floyd-steinberg',
+  threshold: 140,
+};
 
 function NetworkSettings() {
   const { showNotification } = useNotification();
@@ -89,6 +95,112 @@ function NetworkSettings() {
   );
 }
 
+function EInkRenderingSettings() {
+  const { showNotification } = useNotification();
+  const [config, setConfig] = useState<EinkRenderingConfig>(DEFAULT_EINK_RENDERING);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setConfig(await settingsService.getEinkRendering());
+      } catch {
+        showNotification('error', 'Failed to load e-ink rendering settings');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    load();
+  }, [showNotification]);
+
+  const save = useCallback(async (nextConfig: EinkRenderingConfig) => {
+    setConfig(nextConfig);
+    setIsSaving(true);
+    try {
+      setConfig(await settingsService.updateEinkRendering(nextConfig));
+      showNotification('success', 'E-ink rendering settings updated');
+    } catch {
+      showNotification('error', 'Failed to update e-ink rendering settings');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [showNotification]);
+
+  const updateMode = (ditheringMode: EinkDitheringMode) => {
+    save({ ...config, ditheringMode });
+  };
+
+  const updateThreshold = (threshold: number) => {
+    save({ ...config, threshold: Math.min(255, Math.max(0, Math.round(threshold))) });
+  };
+
+  if (isLoading) {
+    return <Card><div className="p-4 text-text-secondary">Loading...</div></Card>;
+  }
+
+  return (
+    <Card>
+      <div className="p-6 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">Dithering</h3>
+          <p className="text-sm text-text-secondary mt-1">
+            Controls how rendered screens are converted for black-and-white e-ink output.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1fr_160px]">
+          <label className="block">
+            <span className="text-sm font-medium text-text-primary">Mode</span>
+            <select
+              value={config.ditheringMode}
+              disabled={isSaving}
+              onChange={(event) => updateMode(event.target.value as EinkDitheringMode)}
+              className="mt-1 block w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="floyd-steinberg">Floyd-Steinberg</option>
+              <option value="threshold">Threshold</option>
+              <option value="grayscale">Grayscale</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-text-primary">Threshold</span>
+            <input
+              type="number"
+              min={0}
+              max={255}
+              value={config.threshold}
+              disabled={isSaving || config.ditheringMode === 'grayscale'}
+              onChange={(event) => updateThreshold(Number(event.target.value))}
+              className="mt-1 block w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => save(DEFAULT_EINK_RENDERING)}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-primary hover:bg-bg-muted disabled:opacity-60"
+          >
+            Default
+          </button>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => save({ ditheringMode: 'threshold', threshold: 255 })}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-primary hover:bg-bg-muted disabled:opacity-60"
+          >
+            Non-white to black
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /**
  * Settings page component
  * Simplified for PIN-based auth (no user accounts)
@@ -157,6 +269,19 @@ export function Settings() {
             <h2 className="text-xl font-semibold text-text-primary">Network Security</h2>
           </div>
           <NetworkSettings />
+        </div>
+
+        {/* E-ink Rendering Section */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-gray-100 to-bg-muted rounded-xl">
+              <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-semibold text-text-primary">E-ink Rendering</h2>
+          </div>
+          <EInkRenderingSettings />
         </div>
 
         {/* Server & Troubleshooting Section */}

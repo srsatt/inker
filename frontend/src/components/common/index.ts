@@ -25,6 +25,7 @@ export { OnlineStatus, OnlineStatusDot } from './OnlineStatus';
 
 // Image components
 export { EInkImage } from './EInkImage';
+export { CodeEditor } from './CodeEditor';
 
 // Widget preview
 export { CustomWidgetPreviewRenderer } from './CustomWidgetPreviewRenderer';

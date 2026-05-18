@@ -582,20 +582,56 @@ export class DataSourcesService {
     jsonPath?: string | null;
   }): Promise<unknown> {
     const safetyOptions = await this.getUrlSafetyOptions();
+    const url = this.expandUrlTemplate(dataSource.url);
     try {
-      await validateUrlSafety(dataSource.url, safetyOptions);
+      await validateUrlSafety(url, safetyOptions);
     } catch (err) {
       throw new BadRequestException(err instanceof Error ? err.message : 'Invalid URL');
     }
     const headers = (dataSource.headers as Record<string, string>) || {};
 
     if (dataSource.type === 'json') {
-      return this.fetchJson(dataSource.url, dataSource.method, headers, dataSource.jsonPath, safetyOptions);
+      return this.fetchJson(url, dataSource.method, headers, dataSource.jsonPath, safetyOptions);
     } else if (dataSource.type === 'rss') {
-      return this.fetchRss(dataSource.url, headers, safetyOptions);
+      return this.fetchRss(url, headers, safetyOptions);
     }
 
     throw new Error(`Unknown data source type: ${dataSource.type}`);
+  }
+
+  /**
+   * Expand small date tokens in source URLs. This keeps dynamic APIs such as
+   * Supabase/PostgREST usable without adding provider-specific data source code.
+   *
+   * Supported tokens:
+   * - {today}, {yesterday}, {tomorrow}
+   * - {today:Europe/Berlin}, {yesterday:America/New_York}, etc.
+   */
+  private expandUrlTemplate(url: string, now = new Date()): string {
+    return url.replace(
+      /\{(today|yesterday|tomorrow)(?::([^}]+))?\}/g,
+      (_match, token: string, timezone?: string) => {
+        const offsetDays = token === 'yesterday' ? -1 : token === 'tomorrow' ? 1 : 0;
+        return this.formatDateToken(now, timezone || process.env.TZ, offsetDays);
+      },
+    );
+  }
+
+  private formatDateToken(now: Date, timezone?: string, offsetDays = 0): string {
+    const shifted = new Date(now.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || undefined,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(shifted);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (!year || !month || !day) {
+      throw new Error(`Could not format date token for timezone: ${timezone || 'local'}`);
+    }
+    return `${year}-${month}-${day}`;
   }
 
   /**

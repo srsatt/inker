@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "install:all": "bun install --cwd backend && bun install --cwd frontend",
+    "init": "bun run fonts:init && bun run db:init",
+    "fonts:init": "bun run scripts/init-fonts.ts",
     "dev": "bun run scripts/dev.ts",
     "dev:single": "bun run scripts/dev.ts --single",
     "db:init": "bun run --cwd backend db:init",

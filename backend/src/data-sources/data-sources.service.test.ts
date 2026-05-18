@@ -134,6 +134,40 @@ describe('DataSourcesService', () => {
     });
   });
 
+  // ─── expandUrlTemplate ───────────────────────────────────────────────
+
+  describe('expandUrlTemplate()', () => {
+    const expand = (url: string, now: Date) =>
+      (service as any).expandUrlTemplate(url, now);
+
+    it('should expand today token in a data source URL', () => {
+      const result = expand(
+        'https://example.com/rest/v1/detections?date=eq.{today:Europe/Berlin}&limit=50',
+        new Date('2026-05-13T10:30:00.000Z'),
+      );
+
+      expect(result).toBe('https://example.com/rest/v1/detections?date=eq.2026-05-13&limit=50');
+    });
+
+    it('should expand timezone-aware day boundaries', () => {
+      const result = expand(
+        'https://example.com/events?date=eq.{today:Europe/Berlin}',
+        new Date('2026-05-12T22:30:00.000Z'),
+      );
+
+      expect(result).toBe('https://example.com/events?date=eq.2026-05-13');
+    });
+
+    it('should expand yesterday and tomorrow tokens', () => {
+      const result = expand(
+        'https://example.com/events?from={yesterday:UTC}&to={tomorrow:UTC}',
+        new Date('2026-05-13T12:00:00.000Z'),
+      );
+
+      expect(result).toBe('https://example.com/events?from=2026-05-12&to=2026-05-14');
+    });
+  });
+
   // ─── parseRss ────────────────────────────────────────────────────────
 
   describe('parseRss()', () => {

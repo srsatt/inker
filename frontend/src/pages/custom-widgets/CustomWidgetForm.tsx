@@ -3,9 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { customWidgetService, dataSourceService } from '../../services/api';
 import { useNotification } from '../../contexts/NotificationContext';
 import { ScriptEditor, type ScriptExecutionResult } from '../../components/common/ScriptEditor';
-import { CustomWidgetPreviewRenderer } from '../../components/common';
+import { CodeEditor, CustomWidgetPreviewRenderer } from '../../components/common';
 import { MainLayout } from '../../components/layout';
-import type { CustomWidgetFormData, CustomWidgetDisplayType, DataSource, FieldMeta, FieldDisplayType, GridCellConfig, CellAlignment, CellVerticalAlignment } from '../../types';
+import type { CustomWidgetFormData, CustomWidgetDisplayType, DataSource, FieldMeta, FieldDisplayType, GridCellConfig, CellAlignment, CellVerticalAlignment, CustomWidgetPreview } from '../../types';
 
 const DISPLAY_TYPES: { value: CustomWidgetDisplayType; label: string; description: string; icon: React.ReactNode }[] = [
   {
@@ -116,6 +116,9 @@ export function CustomWidgetForm() {
   const [sampleData, setSampleData] = useState<unknown>(null);
   const [availableFields, setAvailableFields] = useState<FieldMeta[]>([]);
   const [scriptResult, setScriptResult] = useState<ScriptExecutionResult | null>(null);
+  const [frameworkPreview, setFrameworkPreview] = useState<CustomWidgetPreview | null>(null);
+  const [frameworkPreviewError, setFrameworkPreviewError] = useState<string | null>(null);
+  const [frameworkPreviewLoading, setFrameworkPreviewLoading] = useState(false);
 
   // Form data
   // Note: Font settings (fontSize, fontFamily, etc.) are configured in the screen designer,
@@ -156,6 +159,41 @@ export function CustomWidgetForm() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadWidget uses stable dependencies
   }, [id, isEditing, dataSources]);
+
+  useEffect(() => {
+    if (
+      formData.displayType !== 'framework' ||
+      !formData.dataSourceId ||
+      !formData.template?.trim()
+    ) {
+      setFrameworkPreview(null);
+      setFrameworkPreviewError(null);
+      setFrameworkPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setFrameworkPreviewLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const preview = await customWidgetService.preview(formData);
+        if (cancelled) return;
+        setFrameworkPreview(preview);
+        setFrameworkPreviewError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setFrameworkPreview(null);
+        setFrameworkPreviewError(error instanceof Error ? error.message : 'Failed to render preview');
+      } finally {
+        if (!cancelled) setFrameworkPreviewLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [formData]);
 
   const loadDataSources = async () => {
     try {
@@ -382,6 +420,18 @@ export function CustomWidgetForm() {
       }
     }
 
+    if (formData.displayType === 'framework') {
+      if (frameworkPreviewLoading) {
+        return <div className="text-text-placeholder text-sm">Rendering preview...</div>;
+      }
+      if (frameworkPreviewError) {
+        return <div className="text-status-error-text text-sm text-left p-3 font-mono whitespace-pre-wrap">{frameworkPreviewError}</div>;
+      }
+      if (!frameworkPreview) {
+        return <div className="text-text-placeholder text-sm">Write a template to see preview</div>;
+      }
+    }
+
     return (
       <CustomWidgetPreviewRenderer
         displayType={formData.displayType}
@@ -389,12 +439,13 @@ export function CustomWidgetForm() {
         sampleData={sampleData}
         scriptResult={scriptResult}
         template={formData.template}
+        renderedContent={formData.displayType === 'framework' ? frameworkPreview?.renderedContent : null}
         fontSize={24}
         width={formData.minWidth || 150}
         height={formData.minHeight || 80}
       />
     );
-  }, [sampleData, formData.displayType, formData.config, formData.template, testingSource, scriptResult]);
+  }, [sampleData, formData.displayType, formData.config, formData.template, formData.minWidth, formData.minHeight, testingSource, scriptResult, frameworkPreview, frameworkPreviewError, frameworkPreviewLoading]);
 
   /**
    * Get suggested display type based on field metadata
@@ -1386,22 +1437,17 @@ export function CustomWidgetForm() {
               {formData.displayType === 'framework' && (
                 <div className="space-y-4 p-4 bg-bg-muted rounded-lg">
                   <h3 className="font-medium text-text-primary">TRMNL Framework Template</h3>
-                  <textarea
+                  <CodeEditor
+                    key={formData.dataSourceId}
                     value={formData.template || ''}
-                    onChange={(e) => setFormData({ ...formData, template: e.target.value })}
-                    rows={12}
-                    className="w-full px-3 py-2 border border-border-default rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent font-mono text-sm"
-                    placeholder={`<div class="screen screen--no-bleed">
-  <div class="view view--full">
-    <div class="layout">
-      <span class="title">{ $.title }</span>
-      <span class="value value--large">{ $.value }</span>
-    </div>
-  </div>
-</div>`}
+                    onChange={(template) => setFormData({ ...formData, template })}
+                    availableFields={availableFields}
+                    minHeight={360}
+                    placeholderText={`const rows = Array.isArray($) ? $ : [];
+return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
                   />
                   <p className="text-xs text-text-muted">
-                    Use TRMNL classes and insert data with <code className="bg-bg-card px-1 rounded">{'{ $.field }'}</code>.
+                    JSX templates are rendered by the backend. Any <code className="bg-bg-card px-1 rounded">div</code> with multiple children must set <code className="bg-bg-card px-1 rounded">display: 'flex'</code>, <code className="bg-bg-card px-1 rounded">contents</code>, or <code className="bg-bg-card px-1 rounded">none</code>.
                   </p>
                 </div>
               )}

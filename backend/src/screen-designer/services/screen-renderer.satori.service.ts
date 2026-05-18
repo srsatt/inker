@@ -37,12 +37,12 @@ export class SatoriScreenRendererService extends PuppeteerScreenRendererService 
 
   protected override async rasterizeDocument(document: ScreenRenderDocument): Promise<Buffer> {
     const fonts = this.getSatoriFonts();
-    const root = renderJsxToSatoriNode(document.root);
-    const lintIssues = lintSatoriNode(root);
+    const lintIssues = lintSatoriNode(document.root);
     if (lintIssues.length > 0) {
       throw new Error(`Satori JSX lint failed:\n${formatSatoriLintIssues(lintIssues)}`);
     }
 
+    const root = renderJsxToSatoriNode(document.root);
     const svg = await satori(root as any, {
       width: document.width,
       height: document.height,

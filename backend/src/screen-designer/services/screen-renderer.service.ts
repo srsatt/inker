@@ -19,7 +19,7 @@ import puppeteer, { Browser } from 'puppeteer';
 import QRCode from 'qrcode';
 import { validateUrlSafety, UrlSafetyOptions } from '../../common/utils/url-safety';
 import { encode1BitBmpFromGrayscale } from '../../common/utils/bmp.util';
-import { SETTING_KEYS } from '../../settings/settings.service';
+import { SETTING_KEYS, type EinkDitheringMode } from '../../settings/settings.service';
 import { getTrmnlFrameworkCss } from '../../plugins/sync/trmnl-framework';
 import type { ScreenDesign, ScreenWidget, WidgetTemplate } from '@prisma/client';
 import {
@@ -156,18 +156,26 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
       }
 
       const fontFiles = [
-        { name: 'Inter-Regular', weight: 400, family: 'Inter' },
-        { name: 'Inter-Bold', weight: 700, family: 'Inter' },
-        { name: 'RobotoMono-Regular', weight: 400, family: 'Roboto Mono' },
+        { name: 'Inter-Regular', files: ['Inter.ttf', 'Inter-Regular.woff2'], weight: 400, family: 'Inter' },
+        { name: 'Inter-Bold', files: ['Inter.ttf', 'Inter-Bold.woff2'], weight: 700, family: 'Inter' },
+        { name: 'TRMNL12-Regular', files: ['TRMNL12-Regular.woff', 'TRMNL12-Regular.ttf', 'TRMNL12-Regular.woff2'], weight: 400, family: 'TRMNL12' },
+        { name: 'TRMNL12-Bold', files: ['TRMNL12-Bold.woff', 'TRMNL12-Bold.ttf', 'TRMNL12-Bold.woff2'], weight: 700, family: 'TRMNL12' },
+        { name: 'TRMNL16-Regular', files: ['TRMNL16-Regular.woff', 'TRMNL16-Regular.ttf', 'TRMNL16-Regular.woff2'], weight: 400, family: 'TRMNL16' },
+        { name: 'TRMNL16-Bold', files: ['TRMNL16-Bold.woff', 'TRMNL16-Bold.ttf', 'TRMNL16-Bold.woff2'], weight: 700, family: 'TRMNL16' },
+        { name: 'TRMNL21-Regular', files: ['TRMNL21-Regular.woff', 'TRMNL21-Regular.ttf', 'TRMNL21-Regular.woff2'], weight: 400, family: 'TRMNL21' },
+        { name: 'TRMNL21-Bold', files: ['TRMNL21-Bold.woff', 'TRMNL21-Bold.ttf', 'TRMNL21-Bold.woff2'], weight: 700, family: 'TRMNL21' },
       ];
 
       const fontFaces: string[] = [];
       const rendererFonts: RendererFont[] = [];
 
       for (const font of fontFiles) {
-        const fontPath = path.join(fontsDir, `${font.name}.woff2`);
-        if (fs.existsSync(fontPath)) {
+        const fontPath = font.files
+          .map((file) => path.join(fontsDir, file))
+          .find((candidate) => fs.existsSync(candidate));
+        if (fontPath) {
           const fontData = fs.readFileSync(fontPath);
+          const fontFormat = this.getFontFormat(fontPath);
           this.fontsBase64[font.name] = fontData.toString('base64');
           rendererFonts.push({
             family: font.family,
@@ -181,11 +189,11 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
               font-style: normal;
               font-weight: ${font.weight};
               font-display: block;
-              src: url(data:font/woff2;base64,${this.fontsBase64[font.name]}) format('woff2');
+              src: url(data:${fontFormat.mime};base64,${this.fontsBase64[font.name]}) format('${fontFormat.format}');
             }
           `);
         } else {
-          this.logger.warn(`Font file not found: ${fontPath}`);
+          this.logger.warn(`Font file not found for ${font.name}: ${font.files.join(', ')}`);
         }
       }
 
@@ -195,6 +203,13 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     } catch (error) {
       this.logger.error('Failed to load fonts:', error);
     }
+  }
+
+  private getFontFormat(fontPath: string): { mime: string; format: string } {
+    const extension = path.extname(fontPath).toLowerCase();
+    if (extension === '.ttf') return { mime: 'font/ttf', format: 'truetype' };
+    if (extension === '.woff') return { mime: 'font/woff', format: 'woff' };
+    return { mime: 'font/woff2', format: 'woff2' };
   }
 
   /**
@@ -499,9 +514,9 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     format: RenderFormat = 'png',
   ): Promise<Buffer> {
     const MAX_SIZE = 90000; // Max 90KB for TRMNL devices
-    const threshold = 140; // Higher threshold favors white
+    const { ditheringMode, threshold } = await this.settingsService.getEinkRenderingConfig();
 
-    // First get grayscale raw pixels for Floyd-Steinberg dithering
+    // First get grayscale raw pixels for e-ink processing
     const grayBuffer = await canvas
       .grayscale()
       .normalise()
@@ -510,11 +525,16 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
 
     const { data, info } = grayBuffer;
 
-    // Apply Floyd-Steinberg dithering
-    const ditheredBuffer = this.applyFloydSteinbergDithering(data, info.width, info.height, threshold);
+    const processedBuffer = this.applyMonochromeProcessing(
+      data,
+      info.width,
+      info.height,
+      threshold,
+      ditheringMode,
+    );
 
     if (format === 'bmp') {
-      const buffer = encode1BitBmpFromGrayscale(ditheredBuffer, info.width, info.height);
+      const buffer = encode1BitBmpFromGrayscale(processedBuffer, info.width, info.height, threshold);
       this.logger.debug(
         `E-ink processing complete: ${buffer.length} bytes, 1-bit BMP`,
       );
@@ -523,7 +543,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
 
     // Output as standard 8-bit grayscale PNG (no palette mode)
     // Firmware 1.7.8 handles display color mapping — palette PNGs cause scrambled display
-    let buffer = await sharp(ditheredBuffer, {
+    let buffer = await sharp(processedBuffer, {
       raw: {
         width: info.width,
         height: info.height,
@@ -555,14 +575,15 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      const scaledDithered = this.applyFloydSteinbergDithering(
+      const scaledProcessed = this.applyMonochromeProcessing(
         scaledGray.data,
         scaledGray.info.width,
         scaledGray.info.height,
         threshold,
+        ditheringMode,
       );
 
-      buffer = await sharp(scaledDithered, {
+      buffer = await sharp(scaledProcessed, {
         raw: {
           width: scaledGray.info.width,
           height: scaledGray.info.height,
@@ -574,10 +595,36 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     }
 
     this.logger.debug(
-      `E-ink processing complete: ${buffer.length} bytes, grayscale dithered`,
+      `E-ink processing complete: ${buffer.length} bytes, mode=${ditheringMode}, threshold=${threshold}`,
     );
 
     return buffer;
+  }
+
+  private applyMonochromeProcessing(
+    data: Buffer,
+    width: number,
+    height: number,
+    threshold: number,
+    ditheringMode: EinkDitheringMode,
+  ): Buffer {
+    if (ditheringMode === 'grayscale') {
+      return Buffer.from(data);
+    }
+
+    if (ditheringMode === 'threshold') {
+      return this.applyThreshold(data, threshold);
+    }
+
+    return this.applyFloydSteinbergDithering(data, width, height, threshold);
+  }
+
+  private applyThreshold(data: Buffer, threshold: number): Buffer {
+    const output = Buffer.alloc(data.length);
+    for (let i = 0; i < data.length; i++) {
+      output[i] = data[i] < threshold ? 0 : 255;
+    }
+    return output;
   }
 
   /**
@@ -3410,6 +3457,12 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
       if (typeof renderedContent === 'object' && renderedContent !== null) {
         if ('type' in renderedContent && renderedContent.type === 'framework') {
           return `<style>${getTrmnlFrameworkCss()}</style><div style="width: 100%; height: 100%; overflow: hidden;">${String((renderedContent as Record<string, unknown>).html || '')}</div>`;
+        }
+        if ('type' in renderedContent && renderedContent.type === 'framework-jsx') {
+          return `<div style="width: 100%; height: 100%; overflow: hidden; display: flex;">${renderJsxToHtml((renderedContent as Record<string, unknown>).node as any)}</div>`;
+        }
+        if ('type' in renderedContent && renderedContent.type === 'framework-error') {
+          return `<div style="${baseStyle}; color: #999; font-size: 12px;">${this.escapeHtml(String((renderedContent as Record<string, unknown>).error || 'Framework error'))}</div>`;
         }
         // Grid display
         if ('type' in renderedContent && renderedContent.type === 'grid') {

@@ -12,6 +12,7 @@ import { CreateCustomWidgetDto } from './dto/create-custom-widget.dto';
 import { UpdateCustomWidgetDto } from './dto/update-custom-widget.dto';
 import { wrapListResponse, wrapPaginatedResponse } from '../common/utils/response.util';
 import { CUSTOM_WIDGET_TEMPLATE_OFFSET } from '../common/constants/widget.constants';
+import { formatSatoriLintIssues, lintSatoriNode } from '../screen-designer/services/satori-jsx-linter';
 
 interface CustomWidgetRenderContext {
   width?: number;
@@ -51,6 +52,8 @@ export class CustomWidgetsService {
     if (!dataSource) {
       throw new BadRequestException('Data source not found');
     }
+
+    await this.validateFrameworkDraft(createCustomWidgetDto, dataSource.lastData ?? []);
 
     const customWidget = await this.prisma.customWidget.create({
       data: {
@@ -120,6 +123,9 @@ export class CustomWidgetsService {
   async update(id: number, updateCustomWidgetDto: UpdateCustomWidgetDto) {
     const customWidget = await this.prisma.customWidget.findUnique({
       where: { id },
+      include: {
+        dataSource: true,
+      },
     });
 
     if (!customWidget) {
@@ -136,6 +142,21 @@ export class CustomWidgetsService {
         throw new BadRequestException('Data source not found');
       }
     }
+
+    const dataSource = updateCustomWidgetDto.dataSourceId
+      ? await this.prisma.dataSource.findUnique({ where: { id: updateCustomWidgetDto.dataSourceId } })
+      : customWidget.dataSource;
+    await this.validateFrameworkDraft({
+      name: customWidget.name,
+      description: customWidget.description || undefined,
+      dataSourceId: customWidget.dataSourceId,
+      displayType: customWidget.displayType,
+      template: customWidget.template || undefined,
+      config: customWidget.config as Record<string, unknown>,
+      minWidth: customWidget.minWidth,
+      minHeight: customWidget.minHeight,
+      ...updateCustomWidgetDto,
+    }, dataSource?.lastData ?? []);
 
     const updatedWidget = await this.prisma.customWidget.update({
       where: { id },
@@ -213,6 +234,54 @@ export class CustomWidgetsService {
 
     return {
       widget: customWidget,
+      data,
+      renderedContent,
+    };
+  }
+
+  async previewDraft(
+    draft: CreateCustomWidgetDto | UpdateCustomWidgetDto,
+    renderContext: CustomWidgetRenderContext = {},
+  ) {
+    if (!draft.dataSourceId) {
+      throw new BadRequestException('Data source is required');
+    }
+
+    const dataSource = await this.prisma.dataSource.findUnique({
+      where: { id: draft.dataSourceId },
+      select: SAFE_DATASOURCE_SELECT,
+    });
+
+    if (!dataSource) {
+      throw new BadRequestException('Data source not found');
+    }
+
+    const data = await this.dataSourcesService.getCachedData(draft.dataSourceId, true);
+    await this.validateFrameworkDraft(draft, data);
+
+    const renderedContent = await this.renderContent(
+      draft.displayType || 'value',
+      draft.template || null,
+      (draft.config as Record<string, unknown>) || {},
+      data,
+      renderContext,
+    );
+
+    return {
+      widget: {
+        id: 0,
+        name: draft.name || 'Preview',
+        description: draft.description || '',
+        dataSourceId: draft.dataSourceId,
+        displayType: draft.displayType || 'value',
+        template: draft.template || '',
+        config: draft.config || {},
+        minWidth: draft.minWidth || 100,
+        minHeight: draft.minHeight || 50,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        dataSource,
+      },
       data,
       renderedContent,
     };
@@ -296,6 +365,31 @@ export class CustomWidgetsService {
       return { type: 'framework-error', error: result.error || 'Framework template failed' };
     }
     return { type: 'framework-jsx', node: result.node };
+  }
+
+  private async validateFrameworkDraft(
+    draft: CreateCustomWidgetDto | UpdateCustomWidgetDto,
+    sampleData: unknown,
+  ) {
+    const displayType = draft.displayType;
+    const template = draft.template?.trim();
+    const config = (draft.config || {}) as Record<string, unknown>;
+    if (displayType !== 'framework' || !template || !this.shouldRenderFrameworkAsJsx(template, config)) {
+      return;
+    }
+
+    const rendered = await this.renderFrameworkJsx(template, sampleData, {
+      width: draft.minWidth || 540,
+      height: draft.minHeight || 330,
+    });
+    if (rendered.type === 'framework-error') {
+      throw new BadRequestException(`Framework JSX validation failed: ${String(rendered.error || 'Unknown error')}`);
+    }
+
+    const lintIssues = lintSatoriNode(rendered.node as any);
+    if (lintIssues.length > 0) {
+      throw new BadRequestException(`Satori JSX lint failed:\n${formatSatoriLintIssues(lintIssues)}`);
+    }
   }
 
   /**

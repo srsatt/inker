@@ -2,7 +2,7 @@
  * WidgetRenderer Component
  * Renders a single widget based on its template type and configuration.
  */
-import { useState, useEffect } from 'react';
+import { createElement, Fragment, useState, useEffect } from 'react';
 import type { ScreenWidget, WidgetTemplate } from '../../types';
 import { generateQRCodeDataUrl } from '../../utils/qrcode';
 import { customWidgetService, screenDesignerService } from '../../services/api';
@@ -1106,6 +1106,17 @@ interface GridCellOverride {
   imageFit?: 'contain' | 'cover' | 'fill';
 }
 
+interface FrameworkJsxContent {
+  type: 'framework-jsx';
+  node?: FrameworkJsxNode;
+}
+
+interface FrameworkJsxNode {
+  type?: string;
+  props?: Record<string, unknown>;
+  children?: Array<FrameworkJsxNode | string | number | boolean | null | undefined>;
+}
+
 function GridContentRenderer({
   content,
   fontSize,
@@ -1200,6 +1211,32 @@ function GridContentRenderer({
         );
       })}
     </div>
+  );
+}
+
+function FrameworkJsxRenderer({ node }: { node: FrameworkJsxNode | string | number | boolean | null | undefined }): React.ReactNode {
+  if (node === null || node === undefined || typeof node === 'boolean') return null;
+  if (typeof node === 'string' || typeof node === 'number') return node;
+  if (!node.type) return null;
+
+  const { children = [], props = {} } = node;
+  const cleanProps = Object.fromEntries(
+    Object.entries(props).filter(([key, value]) =>
+      key !== 'children' &&
+      key !== 'dangerouslySetInnerHTML' &&
+      value !== null &&
+      value !== undefined &&
+      value !== false
+    ),
+  );
+  const type = node.type === 'fragment' ? Fragment : node.type;
+
+  return createElement(
+    type,
+    cleanProps,
+    ...children.map((child, index) => (
+      <Fragment key={index}>{FrameworkJsxRenderer({ node: child })}</Fragment>
+    )),
   );
 }
 
@@ -1349,7 +1386,20 @@ function CustomWidgetRenderer({ config }: { config: Record<string, unknown> }) {
         </ul>
       ) : typeof renderedContent === 'object' && renderedContent !== null ? (
         // Object display - could be grid, title-value, or other
-        'type' in renderedContent && renderedContent.type === 'grid' ? (
+        'type' in renderedContent && renderedContent.type === 'framework' ? (
+          <div
+            className="w-full h-full overflow-hidden text-left"
+            dangerouslySetInnerHTML={{ __html: String(renderedContent.html || '') }}
+          />
+        ) : 'type' in renderedContent && renderedContent.type === 'framework-jsx' ? (
+          <div className="w-full h-full overflow-hidden flex text-left">
+            <FrameworkJsxRenderer node={(renderedContent as unknown as FrameworkJsxContent).node} />
+          </div>
+        ) : 'type' in renderedContent && renderedContent.type === 'framework-error' ? (
+          <div className="text-text-placeholder text-sm">
+            {String(renderedContent.error || 'Framework error')}
+          </div>
+        ) : 'type' in renderedContent && renderedContent.type === 'grid' ? (
           // Grid display
           <GridContentRenderer
             content={renderedContent as unknown as GridContent}

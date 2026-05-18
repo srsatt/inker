@@ -398,6 +398,13 @@ export interface ScreenDesign {
   captureUrl?: string | null;
 }
 
+export type EinkDitheringMode = 'floyd-steinberg' | 'threshold' | 'grayscale';
+
+export interface EinkRenderingConfig {
+  ditheringMode: EinkDitheringMode;
+  threshold: number;
+}
+
 // Widget config types for type safety
 
 export interface ClockWidgetConfig {

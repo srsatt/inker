@@ -43,7 +43,7 @@ export class CreateCustomWidgetDto {
   })
   @IsOptional()
   @IsString()
-  @MaxLength(5000)
+  @MaxLength(20000)
   template?: string;
 
   @ApiPropertyOptional({

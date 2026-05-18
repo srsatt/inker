@@ -1,74 +1,83 @@
-/* Inter - Sans Serif */
+/* Inter Variable - downloaded by bun run fonts:init */
 @font-face {
   font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./Inter.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./Inter-Italic.ttf') format('truetype');
+}
+
+/* TRMNL pixel fonts - e-ink optimized */
+@font-face {
+  font-family: 'TRMNL12';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('./Inter-Regular.woff2') format('woff2');
+  src:
+    url('./TRMNL12-Regular.woff2') format('woff2'),
+    url('./TRMNL12-Regular.woff') format('woff'),
+    url('./TRMNL12-Regular.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('./Inter-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('./Inter-SemiBold.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
+  font-family: 'TRMNL12';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('./Inter-Bold.woff2') format('woff2');
+  src:
+    url('./TRMNL12-Bold.woff2') format('woff2'),
+    url('./TRMNL12-Bold.woff') format('woff'),
+    url('./TRMNL12-Bold.ttf') format('truetype');
 }
 
-/* Roboto Mono - Monospace */
 @font-face {
-  font-family: 'Roboto Mono';
+  font-family: 'TRMNL16';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('./RobotoMono-Regular.woff2') format('woff2');
+  src:
+    url('./TRMNL16-Regular.woff2') format('woff2'),
+    url('./TRMNL16-Regular.woff') format('woff'),
+    url('./TRMNL16-Regular.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Roboto Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('./RobotoMono-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Roboto Mono';
+  font-family: 'TRMNL16';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('./RobotoMono-Bold.woff2') format('woff2');
+  src:
+    url('./TRMNL16-Bold.woff2') format('woff2'),
+    url('./TRMNL16-Bold.woff') format('woff'),
+    url('./TRMNL16-Bold.ttf') format('truetype');
 }
 
-/* Merriweather - Serif */
 @font-face {
-  font-family: 'Merriweather';
+  font-family: 'TRMNL21';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('./Merriweather-Regular.woff2') format('woff2');
+  src:
+    url('./TRMNL21-Regular.woff2') format('woff2'),
+    url('./TRMNL21-Regular.woff') format('woff'),
+    url('./TRMNL21-Regular.ttf') format('truetype');
 }
 
 @font-face {
-  font-family: 'Merriweather';
+  font-family: 'TRMNL21';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('./Merriweather-Bold.woff2') format('woff2');
+  src:
+    url('./TRMNL21-Bold.woff2') format('woff2'),
+    url('./TRMNL21-Bold.woff') format('woff'),
+    url('./TRMNL21-Bold.ttf') format('truetype');
 }

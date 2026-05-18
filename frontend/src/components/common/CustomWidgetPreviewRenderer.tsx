@@ -3,6 +3,7 @@
  * Shared component for rendering custom widget previews.
  * Used in both CustomWidgetForm (Live Preview) and Extensions page (widget cards).
  */
+import { createElement, Fragment } from 'react';
 import { EInkImage } from './EInkImage';
 import type { FieldDisplayType } from '../../types';
 
@@ -28,9 +29,16 @@ interface CustomWidgetPreviewRendererProps {
     error?: string;
   } | null;
   template?: string;
+  renderedContent?: string | string[] | Record<string, unknown> | null;
   fontSize?: number;
   width?: number;
   height?: number;
+}
+
+interface FrameworkJsxNode {
+  type?: string;
+  props?: Record<string, unknown>;
+  children?: Array<FrameworkJsxNode | string | number | boolean | null | undefined>;
 }
 
 /**
@@ -117,12 +125,74 @@ function renderFrameworkTemplate(template: string, data: unknown, width: number,
   });
 }
 
+function FrameworkJsxRenderer({ node }: { node: FrameworkJsxNode | string | number | boolean | null | undefined }): React.ReactNode {
+  if (node === null || node === undefined || typeof node === 'boolean') return null;
+  if (typeof node === 'string' || typeof node === 'number') return node;
+  if (!node.type) return null;
+
+  const props = Object.fromEntries(
+    Object.entries(node.props || {}).filter(([key, value]) =>
+      key !== 'children' &&
+      key !== 'dangerouslySetInnerHTML' &&
+      value !== null &&
+      value !== undefined &&
+      value !== false
+    ),
+  );
+  const children = node.children || [];
+  const type = node.type === 'fragment' ? Fragment : node.type;
+
+  return createElement(
+    type,
+    props,
+    ...children.map((child, index) => (
+      <Fragment key={index}>{FrameworkJsxRenderer({ node: child })}</Fragment>
+    )),
+  );
+}
+
+function renderServerContent(
+  renderedContent: string | string[] | Record<string, unknown>,
+  fontSize: number,
+): React.ReactNode {
+  if (typeof renderedContent === 'string') {
+    return <div style={{ fontSize: `${fontSize}px` }}>{renderedContent}</div>;
+  }
+  if (Array.isArray(renderedContent)) {
+    return (
+      <ul className="text-left w-full" style={{ fontSize: `${fontSize}px`, listStyle: 'none', margin: 0, padding: 0 }}>
+        {renderedContent.map((item, index) => <li key={index}>{String(item)}</li>)}
+      </ul>
+    );
+  }
+  if (renderedContent.type === 'framework') {
+    return (
+      <div
+        className="w-full h-full overflow-hidden text-left"
+        dangerouslySetInnerHTML={{ __html: String(renderedContent.html || '') }}
+      />
+    );
+  }
+  if (renderedContent.type === 'framework-jsx') {
+    return (
+      <div className="w-full h-full overflow-hidden flex text-left">
+        <FrameworkJsxRenderer node={renderedContent.node as FrameworkJsxNode} />
+      </div>
+    );
+  }
+  if (renderedContent.type === 'framework-error') {
+    return <div className="text-status-error-text text-sm">{String(renderedContent.error || 'Framework error')}</div>;
+  }
+  return <pre className="text-left text-xs">{JSON.stringify(renderedContent, null, 2)}</pre>;
+}
+
 export function CustomWidgetPreviewRenderer({
   displayType,
   config,
   sampleData,
   scriptResult,
   template,
+  renderedContent,
   fontSize = 24,
   width = 150,
   height = 80,
@@ -136,6 +206,10 @@ export function CustomWidgetPreviewRenderer({
   }
 
   try {
+    if (renderedContent) {
+      return renderServerContent(renderedContent, fontSize);
+    }
+
     switch (displayType) {
       case 'value': {
         const field = (config.field as string) || '';
@@ -372,6 +446,9 @@ export function CustomWidgetPreviewRenderer({
       }
 
       case 'framework': {
+        if ((config.templateMode === 'jsx' || config.frameworkTemplateMode === 'jsx') && /\breturn\s*</.test(template || '')) {
+          return <div className="text-text-placeholder text-sm text-center px-3">Rendering JSX preview...</div>;
+        }
         const html = renderFrameworkTemplate(template || '', sampleData, width, height);
         return (
           <div

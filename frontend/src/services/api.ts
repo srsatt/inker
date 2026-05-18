@@ -23,6 +23,7 @@ import type {
   CustomWidgetFormData,
   CustomWidgetPreview,
   GitHubTokenTestResult,
+  EinkRenderingConfig,
 } from '../types';
 import { config } from '../config';
 
@@ -1036,6 +1037,15 @@ export const customWidgetService = {
     }
   },
 
+  async preview(data: CustomWidgetFormData): Promise<CustomWidgetPreview> {
+    try {
+      const response = await apiClient.post<ApiResponse<CustomWidgetPreview>>('/custom-widgets/preview', data);
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
   async getAsTemplates(): Promise<WidgetTemplate[]> {
     try {
       const response = await apiClient.get<ApiResponse<WidgetTemplate[]>>('/custom-widgets/templates');
@@ -1080,6 +1090,24 @@ export const settingsService = {
   async testGitHubToken(token: string): Promise<GitHubTokenTestResult> {
     try {
       const response = await apiClient.post<ApiResponse<GitHubTokenTestResult>>('/settings/test-github-token', { token });
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async getEinkRendering(): Promise<EinkRenderingConfig> {
+    try {
+      const response = await apiClient.get<ApiResponse<EinkRenderingConfig>>('/settings/eink-rendering');
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
+  },
+
+  async updateEinkRendering(config: EinkRenderingConfig): Promise<EinkRenderingConfig> {
+    try {
+      const response = await apiClient.put<ApiResponse<EinkRenderingConfig>>('/settings/eink-rendering', config);
       return response.data.data;
     } catch (error) {
       throw new Error(getErrorMessage(error));

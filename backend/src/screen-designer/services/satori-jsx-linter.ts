@@ -20,12 +20,12 @@ function visit(node: any, path: string, issues: SatoriLintIssue[]): void {
 
   const type = String(node.type || 'unknown');
   const props = node.props || {};
-  const children = normalizeChildren(props.children);
+  const children = normalizeChildren(node.children ?? props.children);
 
-  if (type === 'div' && children.length > 0 && !hasExplicitDisplay(props.style)) {
+  if (type === 'div' && children.length > 1 && !hasExplicitDisplay(props.style)) {
     issues.push({
       path,
-      message: '<div> with children must set display:flex, display:contents, or display:none',
+      message: `<div> has ${children.length} child nodes but no Satori-compatible display. Set style.display to "flex", "contents", or "none".`,
     });
   }
 
@@ -34,7 +34,10 @@ function visit(node: any, path: string, issues: SatoriLintIssue[]): void {
 
 function normalizeChildren(children: any): any[] {
   if (children === null || children === undefined || children === '') return [];
-  return Array.isArray(children) ? children : [children];
+  return (Array.isArray(children) ? children : [children])
+    .flat()
+    .filter(child => child !== null && child !== undefined && child !== '')
+    .filter(child => typeof child !== 'string' || child.trim() !== '');
 }
 
 function hasExplicitDisplay(style: any): boolean {

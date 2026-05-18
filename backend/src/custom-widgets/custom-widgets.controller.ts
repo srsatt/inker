@@ -43,6 +43,12 @@ export class CustomWidgetsController {
     return this.customWidgetsService.getAsWidgetTemplates();
   }
 
+  @Post('preview')
+  @ApiOperation({ summary: 'Render a draft custom widget with cached data' })
+  preview(@Body() customWidgetDto: CreateCustomWidgetDto) {
+    return this.customWidgetsService.previewDraft(customWidgetDto);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a custom widget by ID' })
   findOne(@Param('id', ParseIntPipe) id: number) {

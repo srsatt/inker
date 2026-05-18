@@ -6,7 +6,15 @@ export const SETTING_KEYS = {
   GITHUB_TOKEN: 'github_token',
   ALLOW_LOCAL_NETWORK: 'allow_local_network',
   WELCOME_SCREEN: 'welcome_screen',
+  EINK_RENDERING: 'eink_rendering',
 } as const;
+
+export type EinkDitheringMode = 'floyd-steinberg' | 'threshold' | 'grayscale';
+
+export interface EinkRenderingConfig {
+  ditheringMode: EinkDitheringMode;
+  threshold: number;
+}
 
 export interface WelcomeScreenConfig {
   enabled: boolean;
@@ -20,6 +28,11 @@ const DEFAULT_WELCOME_SCREEN_CONFIG: WelcomeScreenConfig = {
   title: 'Hello World',
   subtitle: 'This is inker!',
   autoAssignPlaylist: true,
+};
+
+export const DEFAULT_EINK_RENDERING_CONFIG: EinkRenderingConfig = {
+  ditheringMode: 'floyd-steinberg',
+  threshold: 140,
 };
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -127,6 +140,25 @@ export class SettingsService {
     return config;
   }
 
+  async getEinkRenderingConfig(): Promise<EinkRenderingConfig> {
+    const value = await this.get(SETTING_KEYS.EINK_RENDERING);
+    if (!value) {
+      return { ...DEFAULT_EINK_RENDERING_CONFIG };
+    }
+
+    try {
+      return normalizeEinkRenderingConfig(JSON.parse(value));
+    } catch {
+      return { ...DEFAULT_EINK_RENDERING_CONFIG };
+    }
+  }
+
+  async setEinkRenderingConfig(config: EinkRenderingConfig): Promise<EinkRenderingConfig> {
+    const normalized = normalizeEinkRenderingConfig(config);
+    await this.set(SETTING_KEYS.EINK_RENDERING, JSON.stringify(normalized));
+    return normalized;
+  }
+
   /**
    * Delete cached default screen PNG so it regenerates from config on next access
    */
@@ -213,4 +245,15 @@ export class SettingsService {
       };
     }
   }
+}
+
+function normalizeEinkRenderingConfig(value: Partial<EinkRenderingConfig>): EinkRenderingConfig {
+  const ditheringMode = value.ditheringMode === 'threshold' || value.ditheringMode === 'grayscale'
+    ? value.ditheringMode
+    : DEFAULT_EINK_RENDERING_CONFIG.ditheringMode;
+  const threshold = Number.isFinite(value.threshold)
+    ? Math.min(255, Math.max(0, Math.round(value.threshold!)))
+    : DEFAULT_EINK_RENDERING_CONFIG.threshold;
+
+  return { ditheringMode, threshold };
 }

@@ -1,5 +1,5 @@
 import { Controller, Get, Put, Post, Delete, Param, Body, BadRequestException } from '@nestjs/common';
-import { SettingsService, SETTING_KEYS } from './settings.service';
+import { SettingsService, SETTING_KEYS, type EinkRenderingConfig } from './settings.service';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { TestGitHubTokenDto } from './dto/test-github-token.dto';
 import { WelcomeScreenConfigDto } from './dto/welcome-screen-config.dto';
@@ -40,6 +40,16 @@ export class SettingsController {
   async regenerateWelcomeScreens() {
     await this.settingsService.invalidateDefaultScreen();
     return { success: true };
+  }
+
+  @Get('eink-rendering')
+  async getEinkRenderingConfig() {
+    return this.settingsService.getEinkRenderingConfig();
+  }
+
+  @Put('eink-rendering')
+  async saveEinkRenderingConfig(@Body() body: EinkRenderingConfig) {
+    return this.settingsService.setEinkRenderingConfig(body);
   }
 
   /**

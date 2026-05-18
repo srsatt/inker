@@ -351,7 +351,7 @@ export class ScreenDesignerController {
     @UploadedFile() file: Multer.File,
   ) {
     // Verify the screen design exists
-    await this.screenDesignerService.getScreenDesign(id);
+    const screenDesign = await this.screenDesignerService.getScreenDesign(id);
 
     if (!file) {
       throw new BadRequestException('No file uploaded. Make sure to send file with field name "image"');
@@ -360,17 +360,15 @@ export class ScreenDesignerController {
     this.logger.log(`Saving browser capture for screen ${id}: ${file.size} bytes`);
 
     try {
-      // Simple e-ink processing for browser captures:
-      // 1. Flatten transparency to white background
-      // 2. Convert to grayscale
-      //
-      // NOTE: NO negate() - browser captures already have correct colors
-      // (white background, black content). The device displays as-is.
-      const processedBuffer = await sharp(file.buffer)
-        .flatten({ background: { r: 255, g: 255, b: 255 } })
-        .grayscale()
-        .png({ compressionLevel: 9 })
-        .toBuffer();
+      // Browser captures already have correct colors (white background, black content).
+      // Apply the configured e-ink processing without device inversion.
+      const processedBuffer = await this.screenRendererService.applyEinkProcessing(
+        sharp(file.buffer).flatten({ background: { r: 255, g: 255, b: 255 } }),
+        screenDesign.width,
+        screenDesign.height,
+        false,
+        'png',
+      );
 
       // Save to captures directory
       const filename = `capture_${id}.png`;
@@ -475,7 +473,7 @@ export class ScreenDesignerController {
     @UploadedFile() drawingFile?: Multer.File,
   ) {
     // Verify the screen design exists
-    await this.screenDesignerService.getScreenDesign(id);
+    const screenDesign = await this.screenDesignerService.getScreenDesign(id);
 
     this.logger.log(`[captureWithDrawing] Screen ${id}, hasDrawing: ${!!drawingFile}`);
 
@@ -519,13 +517,14 @@ export class ScreenDesignerController {
         compositeBuffer = widgetsBuffer;
       }
 
-      // Apply e-ink processing: flatten, grayscale
-      // NO negate() - colors are correct (white bg, black content)
-      const processedBuffer = await sharp(compositeBuffer)
-        .flatten({ background: { r: 255, g: 255, b: 255 } })
-        .grayscale()
-        .png({ compressionLevel: 9 })
-        .toBuffer();
+      // Apply the configured e-ink processing without device inversion.
+      const processedBuffer = await this.screenRendererService.applyEinkProcessing(
+        sharp(compositeBuffer).flatten({ background: { r: 255, g: 255, b: 255 } }),
+        screenDesign.width,
+        screenDesign.height,
+        false,
+        'png',
+      );
 
       this.logger.log(`[captureWithDrawing] E-ink processed: ${processedBuffer.length} bytes`);
 
