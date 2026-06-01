@@ -58,6 +58,18 @@ export class UpdateDataSourceDto {
   headers?: Record<string, string>;
 
   @ApiPropertyOptional({
+    example: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', title: 'City' },
+      },
+    },
+  })
+  @IsOptional()
+  @IsObject()
+  contextSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
     example: 300,
   })
   @IsOptional()

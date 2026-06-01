@@ -84,7 +84,11 @@ export class ScreenComposerService {
     if (!customWidgetId) return { contentHtml: '<div style="color:#999;">No widget ID</div>' };
 
     try {
-      const result = await this.customWidgets.getWithData(customWidgetId, false, { width: widget.width, height: widget.height });
+      const result = await this.customWidgets.getWithData(customWidgetId, false, {
+        width: widget.width,
+        height: widget.height,
+        ctx: this.getWidgetContext(config),
+      });
       const renderedContent = result.renderedContent;
       const widgetConfig = (result.widget?.config as Record<string, any>) || {};
       const baseStyle = this.customBaseStyle(config);
@@ -140,5 +144,10 @@ export class ScreenComposerService {
     if (!style) return '';
     if (typeof style === 'string') return style;
     return Object.entries(style).map(([key, value]) => `${key}:${String(value)};`).join('');
+  }
+
+  private getWidgetContext(config: Record<string, any>): Record<string, unknown> {
+    const ctx = config.ctx;
+    return ctx && typeof ctx === 'object' && !Array.isArray(ctx) ? ctx : {};
   }
 }

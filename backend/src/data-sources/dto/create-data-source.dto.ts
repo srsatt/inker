@@ -60,6 +60,19 @@ export class CreateDataSourceDto {
   headers?: Record<string, string>;
 
   @ApiPropertyOptional({
+    example: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', title: 'City' },
+      },
+    },
+    description: 'Optional JSON Schema for context values used by URL interpolation',
+  })
+  @IsOptional()
+  @IsObject()
+  contextSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
     example: 300,
     default: 300,
     description: 'Refresh interval in seconds',

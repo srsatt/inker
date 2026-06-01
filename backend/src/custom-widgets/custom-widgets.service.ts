@@ -17,6 +17,7 @@ import { formatSatoriLintIssues, lintSatoriNode } from '../screen-designer/servi
 interface CustomWidgetRenderContext {
   width?: number;
   height?: number;
+  ctx?: Record<string, unknown>;
 }
 
 /** Safe dataSource select — never exposes headers to the frontend */
@@ -25,6 +26,7 @@ const SAFE_DATASOURCE_SELECT = {
   name: true,
   type: true,
   isActive: true,
+  contextSchema: true,
   lastFetchedAt: true,
   lastError: true,
 } as const;
@@ -53,6 +55,10 @@ export class CustomWidgetsService {
       throw new BadRequestException('Data source not found');
     }
 
+    this.validateWidgetContextExtendsDataSource(
+      createCustomWidgetDto.contextSchema,
+      dataSource.contextSchema as Record<string, unknown> | null,
+    );
     await this.validateFrameworkDraft(createCustomWidgetDto, dataSource.lastData ?? []);
 
     const customWidget = await this.prisma.customWidget.create({
@@ -63,6 +69,7 @@ export class CustomWidgetsService {
         displayType: createCustomWidgetDto.displayType,
         template: createCustomWidgetDto.template,
         config: (createCustomWidgetDto.config || {}) as object,
+        contextSchema: createCustomWidgetDto.contextSchema as object | undefined,
         minWidth: createCustomWidgetDto.minWidth || 100,
         minHeight: createCustomWidgetDto.minHeight || 50,
       },
@@ -146,6 +153,10 @@ export class CustomWidgetsService {
     const dataSource = updateCustomWidgetDto.dataSourceId
       ? await this.prisma.dataSource.findUnique({ where: { id: updateCustomWidgetDto.dataSourceId } })
       : customWidget.dataSource;
+    this.validateWidgetContextExtendsDataSource(
+      updateCustomWidgetDto.contextSchema ?? (customWidget.contextSchema as Record<string, unknown> | null),
+      dataSource?.contextSchema as Record<string, unknown> | null,
+    );
     await this.validateFrameworkDraft({
       name: customWidget.name,
       description: customWidget.description || undefined,
@@ -153,6 +164,7 @@ export class CustomWidgetsService {
       displayType: customWidget.displayType,
       template: customWidget.template || undefined,
       config: customWidget.config as Record<string, unknown>,
+      contextSchema: customWidget.contextSchema as Record<string, unknown> | undefined,
       minWidth: customWidget.minWidth,
       minHeight: customWidget.minHeight,
       ...updateCustomWidgetDto,
@@ -167,6 +179,7 @@ export class CustomWidgetsService {
         displayType: updateCustomWidgetDto.displayType,
         template: updateCustomWidgetDto.template,
         config: updateCustomWidgetDto.config as object | undefined,
+        contextSchema: updateCustomWidgetDto.contextSchema as object | undefined,
         minWidth: updateCustomWidgetDto.minWidth,
         minHeight: updateCustomWidgetDto.minHeight,
       },
@@ -217,10 +230,16 @@ export class CustomWidgetsService {
       throw new NotFoundException('Custom widget not found');
     }
 
+    const normalizedRenderContext = this.normalizeRenderContext(renderContext);
+    if (Object.keys(normalizedRenderContext.ctx || {}).length === 0) {
+      normalizedRenderContext.ctx = this.buildContextDefaults(customWidget.contextSchema as Record<string, unknown> | null);
+    }
+
     // Get cached or fresh data from data source
     const data = await this.dataSourcesService.getCachedData(
       customWidget.dataSourceId,
       skipFetch,
+      normalizedRenderContext.ctx,
     );
 
     // Render the data based on display type
@@ -229,7 +248,7 @@ export class CustomWidgetsService {
       customWidget.template,
       customWidget.config as Record<string, unknown>,
       data,
-      renderContext,
+      normalizedRenderContext,
     );
 
     return {
@@ -256,15 +275,25 @@ export class CustomWidgetsService {
       throw new BadRequestException('Data source not found');
     }
 
-    const data = await this.dataSourcesService.getCachedData(draft.dataSourceId, true);
-    await this.validateFrameworkDraft(draft, data);
+    const normalizedRenderContext = this.normalizeRenderContext(renderContext);
+    if (draft.previewContext && typeof draft.previewContext === 'object' && !Array.isArray(draft.previewContext)) {
+      normalizedRenderContext.ctx = draft.previewContext;
+    } else if (Object.keys(normalizedRenderContext.ctx || {}).length === 0) {
+      normalizedRenderContext.ctx = this.buildContextDefaults(draft.contextSchema);
+    }
+    this.validateWidgetContextExtendsDataSource(
+      draft.contextSchema,
+      dataSource.contextSchema as Record<string, unknown> | null,
+    );
+    const data = await this.dataSourcesService.getCachedData(draft.dataSourceId, true, normalizedRenderContext.ctx);
+    await this.validateFrameworkDraft(draft, data, normalizedRenderContext.ctx);
 
     const renderedContent = await this.renderContent(
       draft.displayType || 'value',
       draft.template || null,
       (draft.config as Record<string, unknown>) || {},
       data,
-      renderContext,
+      normalizedRenderContext,
     );
 
     return {
@@ -276,6 +305,7 @@ export class CustomWidgetsService {
         displayType: draft.displayType || 'value',
         template: draft.template || '',
         config: draft.config || {},
+        contextSchema: draft.contextSchema || null,
         minWidth: draft.minWidth || 100,
         minHeight: draft.minHeight || 50,
         createdAt: new Date(),
@@ -305,10 +335,10 @@ export class CustomWidgetsService {
         return this.renderList(config, data);
 
       case 'script':
-        return this.renderScript(config, template, data);
+        return this.renderScript(config, template, data, renderContext.ctx);
 
       case 'grid':
-        return this.renderGrid(config, data);
+        return this.renderGrid(config, data, renderContext.ctx);
 
       case 'framework':
         return this.renderFramework(template, config, data, renderContext);
@@ -337,7 +367,7 @@ export class CustomWidgetsService {
     }
 
     const html = markup.replace(/\{([^{}\n]+)\}/g, (_match, expression: string) => {
-      const result = this.scriptExecutor.evaluateExpression(expression.trim(), data);
+      const result = this.scriptExecutor.evaluateExpression(expression.trim(), data, renderContext.ctx);
       if (!result.success) return '';
       const value = result.value;
       if (value === null || value === undefined) return '';
@@ -370,6 +400,7 @@ export class CustomWidgetsService {
   private async validateFrameworkDraft(
     draft: CreateCustomWidgetDto | UpdateCustomWidgetDto,
     sampleData: unknown,
+    ctx?: Record<string, unknown>,
   ) {
     const displayType = draft.displayType;
     const template = draft.template?.trim();
@@ -381,6 +412,7 @@ export class CustomWidgetsService {
     const rendered = await this.renderFrameworkJsx(template, sampleData, {
       width: draft.minWidth || 540,
       height: draft.minHeight || 330,
+      ctx: ctx || this.buildContextDefaults(draft.contextSchema),
     });
     if (rendered.type === 'framework-error') {
       throw new BadRequestException(`Framework JSX validation failed: ${String(rendered.error || 'Unknown error')}`);
@@ -497,6 +529,7 @@ export class CustomWidgetsService {
     config: Record<string, unknown>,
     template: string | null,
     data: unknown,
+    ctx: Record<string, unknown> = {},
   ): string {
     const code = config.scriptCode as string;
     const outputMode = (config.scriptOutputMode as string) || 'value';
@@ -506,7 +539,7 @@ export class CustomWidgetsService {
     }
 
     if (outputMode === 'value') {
-      const result = this.scriptExecutor.execute(code, data, 'value');
+      const result = this.scriptExecutor.execute(code, data, 'value', ctx);
       if (!result.success) {
         this.logger.warn(`Script error: ${result.error}`);
         return `Error: ${result.error}`;
@@ -516,7 +549,7 @@ export class CustomWidgetsService {
       return `${prefix}${result.value ?? ''}${suffix}`;
     } else {
       // Template mode: execute script to get variables, then apply template
-      const result = this.scriptExecutor.execute(code, data, 'template');
+      const result = this.scriptExecutor.execute(code, data, 'template', ctx);
       if (!result.success) {
         this.logger.warn(`Script error: ${result.error}`);
         return `Error: ${result.error}`;
@@ -538,6 +571,7 @@ export class CustomWidgetsService {
   private renderGrid(
     config: Record<string, unknown>,
     data: unknown,
+    ctx: Record<string, unknown> = {},
   ): Record<string, unknown> {
     const gridCols = (config.gridCols as number) || 2;
     const gridRows = (config.gridRows as number) || 2;
@@ -575,7 +609,7 @@ export class CustomWidgetsService {
 
           if (useScript && script) {
             // Execute script for this cell
-            const result = this.scriptExecutor.execute(script, data, 'value');
+            const result = this.scriptExecutor.execute(script, data, 'value', ctx);
             if (result.success) {
               rawValue = result.value;
               formattedValue = String(result.value ?? '');
@@ -709,9 +743,96 @@ export class CustomWidgetsService {
         verticalAlign: 'middle',
         color: '#000000',
         ...(widget.config as object),
+        contextSchema: widget.contextSchema || undefined,
       },
       minWidth: widget.minWidth,
       minHeight: widget.minHeight,
     }));
+  }
+
+  private normalizeRenderContext(renderContext: CustomWidgetRenderContext = {}): CustomWidgetRenderContext {
+    const ctx = renderContext.ctx;
+    return {
+      ...renderContext,
+      ctx: ctx && typeof ctx === 'object' && !Array.isArray(ctx) ? ctx : {},
+    };
+  }
+
+  private buildContextDefaults(schema: unknown): Record<string, unknown> {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return {};
+    const properties = (schema as Record<string, unknown>).properties;
+    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return {};
+
+    return Object.fromEntries(
+      Object.entries(properties as Record<string, Record<string, unknown>>).map(([key, property]) => {
+        if (property && Object.prototype.hasOwnProperty.call(property, 'default')) {
+          return [key, property.default];
+        }
+        switch (property?.type) {
+          case 'number':
+          case 'integer':
+            return [key, 0];
+          case 'boolean':
+            return [key, false];
+          case 'array':
+            return [key, []];
+          case 'object':
+            return [key, {}];
+          default:
+            return [key, ''];
+        }
+      }),
+    );
+  }
+
+  private validateWidgetContextExtendsDataSource(widgetSchema: unknown, dataSourceSchema: unknown): void {
+    if (!this.hasContextProperties(dataSourceSchema)) return;
+    if (!this.hasContextProperties(widgetSchema)) {
+      throw new BadRequestException('Widget context schema must include the selected data source context schema');
+    }
+
+    const dataSourceProperties = (dataSourceSchema as Record<string, any>).properties as Record<string, unknown>;
+    const widgetProperties = (widgetSchema as Record<string, any>).properties as Record<string, unknown>;
+
+    for (const [key, dataSourceProperty] of Object.entries(dataSourceProperties)) {
+      if (!Object.prototype.hasOwnProperty.call(widgetProperties, key)) {
+        throw new BadRequestException(`Widget context schema is missing data source context property: ${key}`);
+      }
+      if (this.stableStringify(widgetProperties[key]) !== this.stableStringify(dataSourceProperty)) {
+        throw new BadRequestException(`Widget context property must match data source schema: ${key}`);
+      }
+    }
+
+    const dataSourceRequired = new Set(Array.isArray((dataSourceSchema as Record<string, any>).required)
+      ? (dataSourceSchema as Record<string, any>).required
+      : []);
+    const widgetRequired = new Set(Array.isArray((widgetSchema as Record<string, any>).required)
+      ? (widgetSchema as Record<string, any>).required
+      : []);
+
+    for (const key of dataSourceRequired) {
+      if (!widgetRequired.has(key)) {
+        throw new BadRequestException(`Widget context schema must require data source context property: ${key}`);
+      }
+    }
+  }
+
+  private hasContextProperties(schema: unknown): schema is Record<string, unknown> {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+    const properties = (schema as Record<string, unknown>).properties;
+    return !!properties && typeof properties === 'object' && !Array.isArray(properties) && Object.keys(properties).length > 0;
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify((value as Record<string, unknown>)[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
   }
 }

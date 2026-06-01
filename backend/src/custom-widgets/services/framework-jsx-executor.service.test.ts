@@ -30,6 +30,17 @@ describe('FrameworkJsxExecutorService', () => {
     expect(renderJsxToHtml(result.node as any)).toContain('320x180');
   });
 
+  it('exposes dotted context values to the template', async () => {
+    const result = await service.execute(
+      'return <div>{ctx.id}</div>;',
+      {},
+      { ctx: { id: 'berlin' } },
+    );
+
+    expect(result.success).toBe(true);
+    expect(renderJsxToHtml(result.node as any)).toContain('berlin');
+  });
+
   it('blocks raw fetch and leaves fetchJson as the explicit helper', async () => {
     const result = await service.execute('return await fetch("https://example.com");', {});
 

@@ -3,6 +3,8 @@
  * Panel for configuring the selected widget's settings.
  */
 import { useCallback, useState, useRef, useEffect } from 'react';
+import Form from '@rjsf/core';
+import validator from '@rjsf/validator-ajv8';
 import type { ScreenWidget, WidgetTemplate, CustomWidget, GridCellOverride } from '../../types';
 import { screenDesignerService, customWidgetService, pluginService } from '../../services/api';
 import { config } from '../../config';
@@ -465,6 +467,16 @@ export function WidgetSettingsPanel({
   const customWidgetId = widget?.config.customWidgetId as number | undefined;
   const templateName = template?.name;
   const isCustomWidget = templateName?.startsWith('custom-') ?? false;
+  const customWidgetContextSchema = (
+    customWidgetData?.contextSchema ||
+    (template?.defaultConfig?.contextSchema as Record<string, unknown> | undefined)
+  );
+  const hasCustomWidgetContextSchema = !!(
+    customWidgetContextSchema &&
+    typeof customWidgetContextSchema === 'object' &&
+    !Array.isArray(customWidgetContextSchema) &&
+    Object.keys((customWidgetContextSchema.properties as Record<string, unknown> | undefined) || {}).length > 0
+  );
 
   // Load custom widget data when template is a custom widget
   useEffect(() => {
@@ -1483,6 +1495,56 @@ export function WidgetSettingsPanel({
               {/* Default/Global Settings */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Default Settings</p>
+                {hasCustomWidgetContextSchema && (
+                  <div className="space-y-2 pb-3 mb-3 border-b border-border-light">
+                    <p className="text-xs font-medium text-text-muted uppercase tracking-wide">Context</p>
+                    <div className="
+                      [&_fieldset]:space-y-3
+                      [&_legend]:hidden
+                      [&_.form-group]:space-y-1.5
+                      [&_label]:block
+                      [&_label]:text-xs
+                      [&_label]:font-medium
+                      [&_label]:text-text-secondary
+                      [&_input]:w-full
+                      [&_input]:px-3
+                      [&_input]:py-2
+                      [&_input]:border
+                      [&_input]:border-border-default
+                      [&_input]:rounded-lg
+                      [&_input]:bg-bg-card
+                      [&_input]:text-sm
+                      [&_select]:w-full
+                      [&_select]:px-3
+                      [&_select]:py-2
+                      [&_select]:border
+                      [&_select]:border-border-default
+                      [&_select]:rounded-lg
+                      [&_select]:bg-bg-card
+                      [&_select]:text-sm
+                      [&_textarea]:w-full
+                      [&_textarea]:px-3
+                      [&_textarea]:py-2
+                      [&_textarea]:border
+                      [&_textarea]:border-border-default
+                      [&_textarea]:rounded-lg
+                      [&_textarea]:bg-bg-card
+                      [&_textarea]:text-sm
+                      [&_.field-description]:text-xs
+                      [&_.field-description]:text-text-muted
+                    ">
+                      <Form
+                        schema={customWidgetContextSchema as any}
+                        validator={validator}
+                        formData={(widget.config.ctx as Record<string, unknown>) || {}}
+                        onChange={(event) => updateConfig('ctx', event.formData || {})}
+                        noHtml5Validate
+                      >
+                        <></>
+                      </Form>
+                    </div>
+                  </div>
+                )}
                 <Field label="Font Size">
                   <NumberInput
                     value={(widget.config.fontSize as number) || 24}

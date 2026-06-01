@@ -24,14 +24,28 @@ interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   availableFields?: FieldMeta[];
+  contextSchema?: Record<string, unknown> | null;
   placeholderText?: string;
   minHeight?: number;
+}
+
+function extractContextCompletions(schema: Record<string, unknown> | null | undefined): Completion[] {
+  const properties = schema?.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return [];
+
+  return Object.entries(properties as Record<string, Record<string, unknown>>).map(([name, property]) => ({
+    label: `ctx.${name}`,
+    type: 'variable',
+    detail: typeof property?.type === 'string' ? property.type : 'context',
+    info: typeof property?.description === 'string' ? property.description : undefined,
+  }));
 }
 
 export function CodeEditor({
   value,
   onChange,
   availableFields = [],
+  contextSchema,
   placeholderText = '',
   minHeight = 320,
 }: CodeEditorProps) {
@@ -52,13 +66,15 @@ export function CodeEditor({
       detail: field.type,
       info: field.isImageUrl ? 'image URL' : field.isLink ? 'link' : undefined,
     }));
+    const contextCompletions = extractContextCompletions(contextSchema);
+    const completions = [...fieldCompletions, ...contextCompletions];
 
     const completionSource = (context: CompletionContext) => {
       const word = context.matchBefore(/[\w$.[\]]+/);
       if (!word) return null;
       return {
         from: word.from,
-        options: fieldCompletions.filter((completion) =>
+        options: completions.filter((completion) =>
           completion.label.toLowerCase().includes(word.text.toLowerCase())
         ),
         validFor: /^[\w$.[\]]*$/,

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import Form from '@rjsf/core';
+import validator from '@rjsf/validator-ajv8';
 import { customWidgetService, dataSourceService } from '../../services/api';
 import { useNotification } from '../../contexts/NotificationContext';
 import { ScriptEditor, type ScriptExecutionResult } from '../../components/common/ScriptEditor';
@@ -99,6 +101,83 @@ const FIELD_DISPLAY_TYPES: { value: FieldDisplayType; label: string; icon: React
   },
 ];
 
+const TOTAL_STEPS = 4;
+
+function formatContextSchema(schema: Record<string, unknown> | null | undefined): string {
+  return schema ? JSON.stringify(schema, null, 2) : '';
+}
+
+function parseContextSchema(text: string): { schema: Record<string, unknown> | null; error: string | null } {
+  if (!text.trim()) return { schema: null, error: null };
+
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { schema: null, error: 'Context schema must be a JSON object' };
+    }
+    return { schema: parsed as Record<string, unknown>, error: null };
+  } catch (error) {
+    return {
+      schema: null,
+      error: error instanceof Error ? error.message : 'Invalid JSON schema',
+    };
+  }
+}
+
+function hasContextProperties(schema: Record<string, unknown> | null | undefined): boolean {
+  const properties = schema?.properties;
+  return !!properties && typeof properties === 'object' && !Array.isArray(properties) && Object.keys(properties).length > 0;
+}
+
+function mergeContextSchemas(
+  dataSourceSchema: Record<string, unknown> | null | undefined,
+  widgetSchema: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!hasContextProperties(dataSourceSchema)) return widgetSchema ?? null;
+  if (!hasContextProperties(widgetSchema)) return dataSourceSchema ?? null;
+
+  const dataSourceProperties = dataSourceSchema!.properties as Record<string, unknown>;
+  const widgetProperties = widgetSchema!.properties as Record<string, unknown>;
+  const dataSourceRequired = Array.isArray(dataSourceSchema!.required) ? dataSourceSchema!.required as string[] : [];
+  const widgetRequired = Array.isArray(widgetSchema!.required) ? widgetSchema!.required as string[] : [];
+
+  return {
+    ...widgetSchema,
+    type: 'object',
+    properties: {
+      ...widgetProperties,
+      ...dataSourceProperties,
+    },
+    required: [...new Set([...widgetRequired, ...dataSourceRequired])],
+  };
+}
+
+function buildContextDefaults(schema: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const properties = schema?.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return {};
+
+  return Object.fromEntries(
+    Object.entries(properties as Record<string, Record<string, unknown>>).map(([key, property]) => {
+      if (property && Object.prototype.hasOwnProperty.call(property, 'default')) {
+        return [key, property.default];
+      }
+      switch (property?.type) {
+        case 'number':
+        case 'integer':
+          return [key, 0];
+        case 'boolean':
+          return [key, false];
+        case 'array':
+          return [key, []];
+        case 'object':
+          return [key, {}];
+        default:
+          return [key, ''];
+      }
+    }),
+  );
+}
+
 export function CustomWidgetForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -107,6 +186,7 @@ export function CustomWidgetForm() {
 
   // UI state
   const [step, setStep] = useState(1);
+  const [maxVisitedStep, setMaxVisitedStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testingSource, setTestingSource] = useState(false);
@@ -119,6 +199,9 @@ export function CustomWidgetForm() {
   const [frameworkPreview, setFrameworkPreview] = useState<CustomWidgetPreview | null>(null);
   const [frameworkPreviewError, setFrameworkPreviewError] = useState<string | null>(null);
   const [frameworkPreviewLoading, setFrameworkPreviewLoading] = useState(false);
+  const [contextSchemaText, setContextSchemaText] = useState('');
+  const [contextSchemaError, setContextSchemaError] = useState<string | null>(null);
+  const [previewContext, setPreviewContext] = useState<Record<string, unknown>>({});
 
   // Form data
   // Note: Font settings (fontSize, fontFamily, etc.) are configured in the screen designer,
@@ -129,6 +212,7 @@ export function CustomWidgetForm() {
     dataSourceId: 0,
     displayType: 'value',
     template: '',
+    contextSchema: null,
     config: {
       field: '',
       fieldType: 'text' as FieldDisplayType,
@@ -176,7 +260,11 @@ export function CustomWidgetForm() {
     setFrameworkPreviewLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const preview = await customWidgetService.preview(formData);
+        const preview = await customWidgetService.preview(
+          Object.keys(previewContext).length > 0
+            ? { ...formData, previewContext }
+            : formData,
+        );
         if (cancelled) return;
         setFrameworkPreview(preview);
         setFrameworkPreviewError(null);
@@ -193,7 +281,12 @@ export function CustomWidgetForm() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [formData]);
+  }, [formData, previewContext]);
+
+  const goToStep = (nextStep: number) => {
+    setStep(nextStep);
+    setMaxVisitedStep((previous) => Math.max(previous, nextStep));
+  };
 
   const loadDataSources = async () => {
     try {
@@ -216,12 +309,18 @@ export function CustomWidgetForm() {
         config: widget.config || {},
         minWidth: widget.minWidth,
         minHeight: widget.minHeight,
+        contextSchema: widget.contextSchema ?? null,
       });
+      setContextSchemaText(formatContextSchema(widget.contextSchema));
+      setContextSchemaError(null);
+      const defaultContext = buildContextDefaults(widget.contextSchema);
+      setPreviewContext(defaultContext);
       // Skip to last step when editing
-      setStep(3);
+      setStep(4);
+      setMaxVisitedStep(TOTAL_STEPS);
       // Load sample data for the selected source
       if (widget.dataSourceId) {
-        fetchSampleData(widget.dataSourceId);
+        fetchSampleData(widget.dataSourceId, defaultContext);
       }
     } catch {
       showNotification('error', 'Failed to load widget');
@@ -231,10 +330,10 @@ export function CustomWidgetForm() {
     }
   };
 
-  const fetchSampleData = async (sourceId: number) => {
+  const fetchSampleData = async (sourceId: number, ctx?: Record<string, unknown>) => {
     try {
       setTestingSource(true);
-      const result = await dataSourceService.testFetch(sourceId);
+      const result = await dataSourceService.testFetch(sourceId, ctx);
       if (result.success) {
         setSampleData(result.data);
         // Use the fields from the test result if available
@@ -312,12 +411,31 @@ export function CustomWidgetForm() {
     }));
   };
 
+  const updateContextSchemaText = (value: string) => {
+    setContextSchemaText(value);
+    const { schema, error } = parseContextSchema(value);
+    setContextSchemaError(error);
+    if (!error) {
+      setFormData((prev) => ({
+        ...prev,
+        contextSchema: schema,
+      }));
+      setPreviewContext(buildContextDefaults(schema));
+    }
+  };
+
   const handleSourceSelect = (sourceId: number) => {
-    setFormData({ ...formData, dataSourceId: sourceId });
+    const dataSource = dataSources.find((ds) => ds.id === sourceId);
+    const mergedSchema = mergeContextSchemas(dataSource?.contextSchema, formData.contextSchema);
+    const defaultContext = buildContextDefaults(mergedSchema);
+    setFormData({ ...formData, dataSourceId: sourceId, contextSchema: mergedSchema });
+    setContextSchemaText(formatContextSchema(mergedSchema));
+    setContextSchemaError(null);
+    setPreviewContext(defaultContext);
     setSampleData(null);
     setAvailableFields([]);
     if (sourceId) {
-      fetchSampleData(sourceId);
+      fetchSampleData(sourceId, defaultContext);
     }
   };
 
@@ -331,6 +449,10 @@ export function CustomWidgetForm() {
 
     if (!formData.dataSourceId) {
       errors.push('Data source is required');
+    }
+
+    if (contextSchemaError) {
+      errors.push(`Context schema is invalid: ${contextSchemaError}`);
     }
 
     // Display type specific validation
@@ -365,7 +487,9 @@ export function CustomWidgetForm() {
       showNotification('error', errors.join('. '));
       // Navigate to appropriate step if data source is missing
       if (!formData.dataSourceId) {
-        setStep(1);
+        goToStep(1);
+      } else if (contextSchemaError) {
+        goToStep(3);
       }
       return;
     }
@@ -391,6 +515,18 @@ export function CustomWidgetForm() {
 
   // Render preview using the shared component
   const renderPreview = useCallback(() => {
+    if (formData.displayType === 'framework') {
+      if (frameworkPreviewLoading) {
+        return <div className="text-text-placeholder text-sm">Rendering preview...</div>;
+      }
+      if (frameworkPreviewError) {
+        return <div className="text-status-error-text text-sm text-left p-3 font-mono whitespace-pre-wrap">{frameworkPreviewError}</div>;
+      }
+      if (!frameworkPreview) {
+        return <div className="text-text-placeholder text-sm">Write a template to see preview</div>;
+      }
+    }
+
     if (!sampleData) {
       return (
         <div className="text-text-placeholder text-sm">
@@ -420,23 +556,11 @@ export function CustomWidgetForm() {
       }
     }
 
-    if (formData.displayType === 'framework') {
-      if (frameworkPreviewLoading) {
-        return <div className="text-text-placeholder text-sm">Rendering preview...</div>;
-      }
-      if (frameworkPreviewError) {
-        return <div className="text-status-error-text text-sm text-left p-3 font-mono whitespace-pre-wrap">{frameworkPreviewError}</div>;
-      }
-      if (!frameworkPreview) {
-        return <div className="text-text-placeholder text-sm">Write a template to see preview</div>;
-      }
-    }
-
     return (
       <CustomWidgetPreviewRenderer
         displayType={formData.displayType}
         config={(formData.config as Record<string, unknown>) || {}}
-        sampleData={sampleData}
+        sampleData={formData.displayType === 'framework' ? frameworkPreview?.data : sampleData}
         scriptResult={scriptResult}
         template={formData.template}
         renderedContent={formData.displayType === 'framework' ? frameworkPreview?.renderedContent : null}
@@ -543,6 +667,7 @@ export function CustomWidgetForm() {
   };
 
   const selectedSource = dataSources.find((ds) => ds.id === formData.dataSourceId);
+  const previewContextSchema = formData.contextSchema || selectedSource?.contextSchema || null;
 
   if (loading) {
     return (
@@ -579,16 +704,16 @@ export function CustomWidgetForm() {
 
       {/* Progress Steps */}
       <div className="flex items-center justify-center mb-8">
-        {[1, 2, 3].map((s) => (
+        {Array.from({ length: TOTAL_STEPS }, (_, index) => index + 1).map((s) => (
           <div key={s} className="flex items-center">
             <button
-              onClick={() => s <= step && setStep(s)}
-              disabled={s > step}
+              onClick={() => s <= maxVisitedStep && setStep(s)}
+              disabled={s > maxVisitedStep}
               className={`
                 w-10 h-10 rounded-full flex items-center justify-center font-medium transition-all
                 ${step === s
                   ? 'bg-accent text-text-inverse'
-                  : s < step
+                  : s <= maxVisitedStep
                     ? 'bg-accent-light text-accent hover:bg-accent-light cursor-pointer'
                     : 'bg-bg-muted text-text-placeholder cursor-not-allowed'
                 }
@@ -602,7 +727,7 @@ export function CustomWidgetForm() {
                 s
               )}
             </button>
-            {s < 3 && (
+            {s < TOTAL_STEPS && (
               <div className={`w-24 h-1 mx-2 rounded ${s < step ? 'bg-accent' : 'bg-bg-muted'}`} />
             )}
           </div>
@@ -675,7 +800,7 @@ export function CustomWidgetForm() {
 
               <div className="flex justify-end pt-4 border-t border-border-light">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => goToStep(2)}
                   disabled={!formData.dataSourceId}
                   className="px-6 py-2 bg-accent text-text-inverse rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -723,7 +848,7 @@ export function CustomWidgetForm() {
                   Back
                 </button>
                 <button
-                  onClick={() => setStep(3)}
+                  onClick={() => goToStep(3)}
                   className="px-6 py-2 bg-accent text-text-inverse rounded-lg hover:bg-accent-hover transition-colors"
                 >
                   Continue
@@ -732,8 +857,64 @@ export function CustomWidgetForm() {
             </div>
           )}
 
-          {/* Step 3: Configure Widget */}
+          {/* Step 3: Widget Context */}
           {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary mb-1">Widget Context</h2>
+                <p className="text-sm text-text-muted">Define optional per-screen settings with JSON Schema</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-text-secondary">Context JSON Schema</label>
+                <textarea
+                  value={contextSchemaText}
+                  onChange={(e) => updateContextSchemaText(e.target.value)}
+                  rows={16}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent font-mono text-sm ${
+                    contextSchemaError ? 'border-status-error-border' : 'border-border-default'
+                  }`}
+                  placeholder={`{
+  "type": "object",
+  "properties": {
+    "city": {
+      "type": "string",
+      "title": "City",
+      "default": "Berlin"
+    }
+  },
+  "required": ["city"]
+}`}
+                />
+                {contextSchemaError ? (
+                  <p className="text-xs text-status-error-text">{contextSchemaError}</p>
+                ) : (
+                  <p className="text-xs text-text-muted">
+                    Leave empty when this widget does not need per-screen values. Use values as <code className="bg-bg-muted px-1 rounded">ctx.city</code>.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-between pt-4 border-t border-border-light">
+                <button
+                  onClick={() => setStep(2)}
+                  className="px-6 py-2 text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => goToStep(4)}
+                  disabled={!!contextSchemaError}
+                  className="px-6 py-2 bg-accent text-text-inverse rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Configure Widget */}
+          {step === 4 && (
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-semibold text-text-primary mb-1">Configure Widget</h2>
@@ -1438,10 +1619,11 @@ export function CustomWidgetForm() {
                 <div className="space-y-4 p-4 bg-bg-muted rounded-lg">
                   <h3 className="font-medium text-text-primary">TRMNL Framework Template</h3>
                   <CodeEditor
-                    key={formData.dataSourceId}
+                    key={`${formData.dataSourceId}:${JSON.stringify(formData.contextSchema || {})}`}
                     value={formData.template || ''}
                     onChange={(template) => setFormData({ ...formData, template })}
                     availableFields={availableFields}
+                    contextSchema={formData.contextSchema}
                     minHeight={360}
                     placeholderText={`const rows = Array.isArray($) ? $ : [];
 return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
@@ -1456,7 +1638,7 @@ return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
 
               <div className="flex justify-between pt-4 border-t border-border-light">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   className="px-6 py-2 text-text-secondary hover:text-text-primary transition-colors"
                 >
                   Back
@@ -1491,7 +1673,7 @@ return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
               <h3 className="font-medium text-text-primary">Live Preview</h3>
               {selectedSource && (
                 <button
-                  onClick={() => fetchSampleData(selectedSource.id)}
+                  onClick={() => fetchSampleData(selectedSource.id, previewContext)}
                   disabled={testingSource}
                   className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-accent bg-accent-light rounded-lg hover:bg-accent-light transition-colors disabled:opacity-50"
                 >
@@ -1538,6 +1720,61 @@ return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
             )}
           </div>
 
+          {hasContextProperties(previewContextSchema) && (
+            <div className="bg-bg-card rounded-xl shadow-sm border border-border-light p-4">
+              <h3 className="font-medium text-text-primary mb-3">Preview Context</h3>
+              <div className="
+                [&_fieldset]:border-0
+                [&_fieldset]:p-0
+                [&_legend]:text-sm
+                [&_legend]:font-medium
+                [&_legend]:text-text-secondary
+                [&_.form-group]:space-y-1
+                [&_.form-group]:mb-3
+                [&_label]:block
+                [&_label]:text-sm
+                [&_label]:font-medium
+                [&_label]:text-text-secondary
+                [&_input]:w-full
+                [&_input]:px-3
+                [&_input]:py-2
+                [&_input]:border
+                [&_input]:border-border-default
+                [&_input]:rounded-lg
+                [&_input]:bg-bg-card
+                [&_input]:text-sm
+                [&_select]:w-full
+                [&_select]:px-3
+                [&_select]:py-2
+                [&_select]:border
+                [&_select]:border-border-default
+                [&_select]:rounded-lg
+                [&_select]:bg-bg-card
+                [&_select]:text-sm
+                [&_textarea]:w-full
+                [&_textarea]:px-3
+                [&_textarea]:py-2
+                [&_textarea]:border
+                [&_textarea]:border-border-default
+                [&_textarea]:rounded-lg
+                [&_textarea]:bg-bg-card
+                [&_textarea]:text-sm
+                [&_.field-description]:text-xs
+                [&_.field-description]:text-text-muted
+              ">
+                <Form
+                  schema={previewContextSchema as any}
+                  validator={validator}
+                  formData={previewContext}
+                  onChange={(event) => setPreviewContext((event.formData || {}) as Record<string, unknown>)}
+                  noHtml5Validate
+                >
+                  <></>
+                </Form>
+              </div>
+            </div>
+          )}
+
           {/* Data Source Info */}
           {selectedSource && (
             <div className="bg-bg-card rounded-xl shadow-sm border border-border-light p-4">
@@ -1553,7 +1790,7 @@ return <div style={{ display: 'flex' }}>{rows.length}</div>;`}
               <p className="text-xs text-text-placeholder truncate">{selectedSource.url}</p>
 
               <button
-                onClick={() => fetchSampleData(selectedSource.id)}
+                onClick={() => fetchSampleData(selectedSource.id, previewContext)}
                 disabled={testingSource}
                 className="mt-3 w-full px-3 py-2 text-sm bg-bg-muted text-text-secondary rounded-lg hover:bg-border-light transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >

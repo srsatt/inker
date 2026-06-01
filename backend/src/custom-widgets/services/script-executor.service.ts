@@ -45,6 +45,7 @@ export class ScriptExecutorService {
     code: string,
     data: unknown,
     mode: 'value' | 'template',
+    ctx: Record<string, unknown> = {},
   ): ScriptResult {
     try {
       // Validate script before execution
@@ -73,8 +74,12 @@ export class ScriptExecutorService {
       // Even if an attacker traverses $.constructor, they reach the VM's Function,
       // which cannot access the host's process/require.
       const dataJson = JSON.stringify(data ?? null);
+      const ctxJson = JSON.stringify(ctx ?? {});
       const initScript = new vm.Script(
-        `var $ = JSON.parse(${JSON.stringify(dataJson)});`,
+        [
+          `var $ = JSON.parse(${JSON.stringify(dataJson)});`,
+          `var ctx = Object.freeze(JSON.parse(${JSON.stringify(ctxJson)}));`,
+        ].join('\n'),
       );
       initScript.runInContext(context, { timeout: this.TIMEOUT_MS });
 
@@ -90,8 +95,8 @@ export class ScriptExecutorService {
     }
   }
 
-  evaluateExpression(expression: string, data: unknown): ScriptResult {
-    return this.execute(`return (${expression});`, data, 'value');
+  evaluateExpression(expression: string, data: unknown, ctx: Record<string, unknown> = {}): ScriptResult {
+    return this.execute(`return (${expression});`, data, 'value', ctx);
   }
 
   /**

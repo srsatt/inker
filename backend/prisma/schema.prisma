@@ -147,6 +147,7 @@ model DataSource {
   url             String    // API endpoint or RSS feed URL
   method          String    @default("GET") // HTTP method for JSON APIs
   headers         Json?     // Custom headers (e.g., API keys)
+  contextSchema   Json?     @map("context_schema") // JSON Schema for context needed to fetch this source
   refreshInterval Int       @default(300) @map("refresh_interval") // Seconds between fetches
   jsonPath        String?   @map("json_path") // JSONPath expression to extract data
   isActive        Boolean   @default(true) @map("is_active")
@@ -170,6 +171,7 @@ model CustomWidget {
   displayType   String   // "template" | "value" | "list" | "title-value"
   template      String?  // Template string for "template" display type
   config        Json     // Layout config (fontSize, alignment, etc.)
+  contextSchema Json?    @map("context_schema") // JSON Schema for per-screen widget context
   minWidth      Int      @default(100) @map("min_width")
   minHeight     Int      @default(50) @map("min_height")
   createdAt     DateTime @default(now()) @map("created_at")

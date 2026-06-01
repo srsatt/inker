@@ -31,13 +31,16 @@ export interface FieldMeta {
   isLink?: boolean;
 }
 
+type WidgetContext = Record<string, unknown>;
+
 @Injectable()
 export class DataSourcesService {
   private readonly logger = new Logger(DataSourcesService.name);
 
   // Deduplicates concurrent external API fetches for the same data source
   // When multiple widgets share a data source, only one fetch runs at a time
-  private pendingFetches = new Map<number, Promise<unknown>>();
+  private pendingFetches = new Map<string, Promise<unknown>>();
+  private contextCache = new Map<string, { data: unknown; fetchedAt: number }>();
 
   constructor(
     private prisma: PrismaService,
@@ -56,6 +59,7 @@ export class DataSourcesService {
         url: createDataSourceDto.url,
         method: createDataSourceDto.method || 'GET',
         headers: (createDataSourceDto.headers || undefined) as object | undefined,
+        contextSchema: createDataSourceDto.contextSchema as object | undefined,
         refreshInterval: createDataSourceDto.refreshInterval || 300,
         jsonPath: createDataSourceDto.jsonPath,
         isActive: createDataSourceDto.isActive ?? true,
@@ -167,7 +171,7 @@ export class DataSourcesService {
         url: dto.url,
         method: dto.method || 'GET',
         headers,
-      });
+      }, dto.ctx || {});
 
       // Extract all field paths with types and sample values
       const fields = this.extractFieldsWithMeta(data);
@@ -401,6 +405,9 @@ export class DataSourcesService {
       updateDataSourceDto.headers as Record<string, string> | null,
       dataSource.headers as Record<string, string> | null,
     );
+    if (Object.prototype.hasOwnProperty.call(updateDataSourceDto, 'contextSchema')) {
+      await this.validateExistingWidgetsExtendContextSchema(id, updateDataSourceDto.contextSchema);
+    }
 
     const updatedDataSource = await this.prisma.dataSource.update({
       where: { id },
@@ -411,6 +418,7 @@ export class DataSourcesService {
         url: updateDataSourceDto.url,
         method: updateDataSourceDto.method,
         headers: headers as any,
+        contextSchema: updateDataSourceDto.contextSchema as any,
         refreshInterval: updateDataSourceDto.refreshInterval,
         jsonPath: updateDataSourceDto.jsonPath,
         isActive: updateDataSourceDto.isActive,
@@ -458,7 +466,7 @@ export class DataSourcesService {
    * Test fetch data from the source and update status
    * Returns the data along with extracted fields for the widget editor
    */
-  async testFetch(id: number) {
+  async testFetch(id: number, ctx: WidgetContext = {}) {
     const dataSource = await this.prisma.dataSource.findUnique({
       where: { id },
     });
@@ -471,7 +479,7 @@ export class DataSourcesService {
       const data = await this.fetchDataFromSource({
         ...dataSource,
         headers: dataSource.headers as object | null,
-      });
+      }, ctx);
       // Extract fields from the data so the widget editor can show a dropdown
       const fields = this.extractFieldsWithMeta(data);
 
@@ -580,9 +588,9 @@ export class DataSourcesService {
     method: string;
     headers?: object | null;
     jsonPath?: string | null;
-  }): Promise<unknown> {
+  }, ctx: WidgetContext = {}): Promise<unknown> {
     const safetyOptions = await this.getUrlSafetyOptions();
-    const url = this.expandUrlTemplate(dataSource.url);
+    const url = this.expandUrlTemplate(dataSource.url, new Date(), ctx);
     try {
       await validateUrlSafety(url, safetyOptions);
     } catch (err) {
@@ -607,14 +615,45 @@ export class DataSourcesService {
    * - {today}, {yesterday}, {tomorrow}
    * - {today:Europe/Berlin}, {yesterday:America/New_York}, etc.
    */
-  private expandUrlTemplate(url: string, now = new Date()): string {
-    return url.replace(
+  private expandUrlTemplate(url: string, now = new Date(), ctx: WidgetContext = {}): string {
+    const withDateTokens = url.replace(
       /\{(today|yesterday|tomorrow)(?::([^}]+))?\}/g,
       (_match, token: string, timezone?: string) => {
         const offsetDays = token === 'yesterday' ? -1 : token === 'tomorrow' ? 1 : 0;
         return this.formatDateToken(now, timezone || process.env.TZ, offsetDays);
       },
     );
+
+    return withDateTokens.replace(
+      /\{\s*ctx\.([^{}\s]+)\s*\}/g,
+      (_match, pathExpression: string) => {
+        const value = this.extractContextValue(ctx, pathExpression);
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'object') return encodeURIComponent(JSON.stringify(value));
+        return encodeURIComponent(String(value));
+      },
+    );
+  }
+
+  private extractContextValue(ctx: WidgetContext, pathExpression: string): unknown {
+    const parts = pathExpression.split(/\.|(\[\d+\])/).filter(Boolean);
+    let current: unknown = ctx;
+
+    for (const part of parts) {
+      if (current === null || current === undefined) return undefined;
+
+      const indexMatch = part.match(/^\[(\d+)\]$/);
+      if (indexMatch) {
+        if (!Array.isArray(current)) return undefined;
+        current = current[parseInt(indexMatch[1], 10)];
+      } else if (typeof current === 'object') {
+        current = (current as Record<string, unknown>)[part];
+      } else {
+        return undefined;
+      }
+    }
+
+    return current;
   }
 
   private formatDateToken(now: Date, timezone?: string, offsetDays = 0): string {
@@ -879,13 +918,18 @@ export class DataSourcesService {
    * Get cached data for a data source, refreshing if stale
    * @param skipFetch - If true, return cached data without fetching (for previews/editing)
    */
-  async getCachedData(id: number, skipFetch = false): Promise<unknown> {
+  async getCachedData(id: number, skipFetch = false, ctx: WidgetContext = {}): Promise<unknown> {
     const dataSource = await this.prisma.dataSource.findUnique({
       where: { id },
     });
 
     if (!dataSource) {
       throw new NotFoundException('Data source not found');
+    }
+
+    const normalizedContext = this.normalizeContext(ctx);
+    if (Object.keys(normalizedContext).length > 0) {
+      return this.getContextualCachedData(id, dataSource, normalizedContext, skipFetch);
     }
 
     // When skipFetch is true, return cached data without hitting the external API
@@ -902,21 +946,65 @@ export class DataSourcesService {
     if (isStale || !dataSource.lastData) {
       // Deduplicate concurrent fetches — if a fetch for this ID is already
       // in-flight, reuse that Promise instead of making another API call
-      const pending = this.pendingFetches.get(id);
+      const pendingKey = String(id);
+      const pending = this.pendingFetches.get(pendingKey);
       if (pending) {
         return pending;
       }
 
       const fetchPromise = this.fetchAndCache(id, dataSource);
-      this.pendingFetches.set(id, fetchPromise);
+      this.pendingFetches.set(pendingKey, fetchPromise);
       try {
         return await fetchPromise;
       } finally {
-        this.pendingFetches.delete(id);
+        this.pendingFetches.delete(pendingKey);
       }
     }
 
     return dataSource.lastData;
+  }
+
+  private async getContextualCachedData(
+    id: number,
+    dataSource: any,
+    ctx: WidgetContext,
+    skipFetch: boolean,
+  ): Promise<unknown> {
+    const cacheKey = `${id}:${this.stableStringify(ctx)}`;
+    const cached = this.contextCache.get(cacheKey);
+    const isStale =
+      !cached ||
+      Date.now() - cached.fetchedAt > dataSource.refreshInterval * 1000;
+
+    if (skipFetch) {
+      return cached?.data ?? dataSource.lastData ?? null;
+    }
+
+    if (!isStale) {
+      return cached.data;
+    }
+
+    const pending = this.pendingFetches.get(cacheKey);
+    if (pending) {
+      return pending;
+    }
+
+    const fetchPromise = this.fetchDataFromSource({
+      ...dataSource,
+      headers: dataSource.headers as object | null,
+    }, ctx);
+    this.pendingFetches.set(cacheKey, fetchPromise);
+
+    try {
+      const data = await fetchPromise;
+      this.contextCache.set(cacheKey, { data, fetchedAt: Date.now() });
+      return data;
+    } catch (error) {
+      if (cached) return cached.data;
+      throw error;
+    } finally {
+      this.pendingFetches.delete(cacheKey);
+    }
   }
 
   /**
@@ -944,5 +1032,82 @@ export class DataSourcesService {
       }
       throw error;
     }
+  }
+
+  private normalizeContext(ctx: WidgetContext = {}): WidgetContext {
+    if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx)) return {};
+    return ctx;
+  }
+
+  private async validateExistingWidgetsExtendContextSchema(
+    dataSourceId: number,
+    dataSourceSchema: unknown,
+  ): Promise<void> {
+    if (!this.hasContextProperties(dataSourceSchema)) return;
+
+    const widgets = await this.prisma.customWidget.findMany({
+      where: { dataSourceId },
+      select: { name: true, contextSchema: true },
+    });
+
+    for (const widget of widgets) {
+      try {
+        this.validateContextSchemaExtension(widget.contextSchema, dataSourceSchema);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new BadRequestException(`Existing widget "${widget.name}" does not extend the data source context schema: ${reason}`);
+      }
+    }
+  }
+
+  private validateContextSchemaExtension(widgetSchema: unknown, dataSourceSchema: unknown): void {
+    if (!this.hasContextProperties(dataSourceSchema)) return;
+    if (!this.hasContextProperties(widgetSchema)) {
+      throw new Error('missing context properties');
+    }
+
+    const dataSourceProperties = (dataSourceSchema as Record<string, any>).properties as Record<string, unknown>;
+    const widgetProperties = (widgetSchema as Record<string, any>).properties as Record<string, unknown>;
+
+    for (const [key, dataSourceProperty] of Object.entries(dataSourceProperties)) {
+      if (!Object.prototype.hasOwnProperty.call(widgetProperties, key)) {
+        throw new Error(`missing property "${key}"`);
+      }
+      if (this.stableStringify(widgetProperties[key]) !== this.stableStringify(dataSourceProperty)) {
+        throw new Error(`property "${key}" differs`);
+      }
+    }
+
+    const dataSourceRequired = new Set(Array.isArray((dataSourceSchema as Record<string, any>).required)
+      ? (dataSourceSchema as Record<string, any>).required
+      : []);
+    const widgetRequired = new Set(Array.isArray((widgetSchema as Record<string, any>).required)
+      ? (widgetSchema as Record<string, any>).required
+      : []);
+
+    for (const key of dataSourceRequired) {
+      if (!widgetRequired.has(key)) {
+        throw new Error(`required property "${key}" is optional`);
+      }
+    }
+  }
+
+  private hasContextProperties(schema: unknown): schema is Record<string, unknown> {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+    const properties = (schema as Record<string, unknown>).properties;
+    return !!properties && typeof properties === 'object' && !Array.isArray(properties) && Object.keys(properties).length > 0;
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify((value as Record<string, unknown>)[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
   }
 }

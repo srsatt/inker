@@ -2014,7 +2014,11 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
 
     try {
       // Fetch the custom widget, refreshing stale data sources if needed
-      const preview = await this.customWidgetsService.getWithData(customWidgetId);
+      const preview = await this.customWidgetsService.getWithData(customWidgetId, false, {
+        width,
+        height,
+        ctx: this.getWidgetContext(config),
+      });
       const { widget, renderedContent } = preview;
       const widgetConfig = widget.config as Record<string, any>;
       const fieldType = widgetConfig.fieldType as string | undefined;
@@ -2448,6 +2452,11 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
       .replace(/'/g, '&#039;');
   }
 
+  private getWidgetContext(config: Record<string, any>): Record<string, unknown> {
+    const ctx = config.ctx;
+    return ctx && typeof ctx === 'object' && !Array.isArray(ctx) ? ctx : {};
+  }
+
   /**
    * Helper to render an image from URL (reused from renderImageWidget logic)
    */
@@ -2791,16 +2800,22 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
 
     // Pre-fetch data for custom widgets to avoid duplicate API calls
     // When multiple custom widgets share a data source, this ensures only one external fetch
-    const seenDataSources = new Set<number>();
+    const seenDataSources = new Set<string>();
     for (const widget of widgets) {
       if (widget.template.name === 'custom-widget-base') {
         const cwId = (widget.config as any)?.customWidgetId as number | undefined;
         if (cwId) {
           const cw = await this.customWidgetsService.findOne(cwId).catch(() => null);
-          if (cw?.dataSourceId && !seenDataSources.has(cw.dataSourceId)) {
-            seenDataSources.add(cw.dataSourceId);
-            // getWithData warms the data source cache in DB
-            await this.customWidgetsService.getWithData(cwId).catch(() => null);
+          const ctx = this.getWidgetContext((widget.config as Record<string, any>) || {});
+          const cacheKey = `${cw?.dataSourceId ?? 'unknown'}:${JSON.stringify(ctx)}`;
+          if (cw?.dataSourceId && !seenDataSources.has(cacheKey)) {
+            seenDataSources.add(cacheKey);
+            // getWithData warms the data source cache for this widget context.
+            await this.customWidgetsService.getWithData(cwId, false, {
+              width: widget.width,
+              height: widget.height,
+              ctx,
+            }).catch(() => null);
           }
         }
       }
@@ -3423,7 +3438,11 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     if (!customWidgetId) return '<div style="color: #999;">No widget ID</div>';
 
     try {
-      const result = await this.customWidgetsService.getWithData(customWidgetId);
+      const result = await this.customWidgetsService.getWithData(customWidgetId, false, {
+        width,
+        height,
+        ctx: this.getWidgetContext(config),
+      });
       const renderedContent = result.renderedContent;
       const widgetConfig = (result.widget?.config as Record<string, any>) || {};
 

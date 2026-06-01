@@ -76,7 +76,37 @@ function extractWithJsonPath(data: unknown, path?: unknown): unknown {
   return current;
 }
 
-async function fetchDataSourceForDebug(id: number, cache: boolean) {
+function extractContextValue(ctx: JsonObject, pathExpression: string): unknown {
+  const parts = pathExpression.split(/\.|(\[\d+\])/).filter(Boolean);
+  let current: unknown = ctx;
+
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+
+    const indexMatch = part.match(/^\[(\d+)\]$/);
+    if (indexMatch) {
+      if (!Array.isArray(current)) return undefined;
+      current = current[Number.parseInt(indexMatch[1], 10)];
+    } else if (typeof current === 'object') {
+      current = (current as JsonObject)[part];
+    } else {
+      return undefined;
+    }
+  }
+
+  return current;
+}
+
+function expandContextUrlTemplate(url: string, ctx: JsonObject = {}): string {
+  return url.replace(/\{\s*ctx\.([^{}\s]+)\s*\}/g, (_match, pathExpression: string) => {
+    const value = extractContextValue(ctx, pathExpression);
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') return encodeURIComponent(JSON.stringify(value));
+    return encodeURIComponent(String(value));
+  });
+}
+
+async function fetchDataSourceForDebug(id: number, cache: boolean, ctx: JsonObject = {}) {
   const dataSource = await prisma.dataSource.findUnique({ where: { id } });
   if (!dataSource) throw new Error('Data source not found');
 
@@ -85,7 +115,8 @@ async function fetchDataSourceForDebug(id: number, cache: boolean) {
   const startedAt = new Date();
 
   try {
-    const response = await fetch(dataSource.url, {
+    const url = expandContextUrlTemplate(dataSource.url, ctx);
+    const response = await fetch(url, {
       method: dataSource.method,
       headers: (dataSource.headers || {}) as Record<string, string>,
       signal: controller.signal,
@@ -107,7 +138,7 @@ async function fetchDataSourceForDebug(id: number, cache: boolean) {
         ok: false,
         id,
         name: dataSource.name,
-        url: dataSource.url,
+        url,
         status: response.status,
         statusText: response.statusText,
         contentType,
@@ -121,7 +152,7 @@ async function fetchDataSourceForDebug(id: number, cache: boolean) {
       ok: true,
       id,
       name: dataSource.name,
-      url: dataSource.url,
+      url,
       status: response.status,
       statusText: response.statusText,
       contentType,
@@ -148,7 +179,7 @@ async function fetchDataSourceForDebug(id: number, cache: boolean) {
       ok: false,
       id,
       name: dataSource.name,
-      url: dataSource.url,
+      url: expandContextUrlTemplate(dataSource.url, ctx),
       error: message,
       fetchedAt: startedAt.toISOString(),
     };
@@ -169,6 +200,88 @@ function shouldValidateFrameworkWidget(displayType?: unknown, template?: unknown
     || /^\s*(const|let|var|async|return)\b/.test(markup);
 }
 
+function hasContextProperties(schema: unknown): schema is JsonObject {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+  const properties = (schema as JsonObject).properties;
+  return !!properties && typeof properties === 'object' && !Array.isArray(properties) && Object.keys(properties).length > 0;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as JsonObject)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify((value as JsonObject)[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function buildContextDefaults(schema: unknown): JsonObject {
+  if (!hasContextProperties(schema)) return {};
+  return Object.fromEntries(
+    Object.entries(schema.properties as Record<string, JsonObject>).map(([key, property]) => {
+      if (property && Object.prototype.hasOwnProperty.call(property, 'default')) {
+        return [key, property.default];
+      }
+      switch (property?.type) {
+        case 'number':
+        case 'integer':
+          return [key, 0];
+        case 'boolean':
+          return [key, false];
+        case 'array':
+          return [key, []];
+        case 'object':
+          return [key, {}];
+        default:
+          return [key, ''];
+      }
+    }),
+  );
+}
+
+function validateContextSchemaExtension(widgetSchema: unknown, dataSourceSchema: unknown): void {
+  if (!hasContextProperties(dataSourceSchema)) return;
+  if (!hasContextProperties(widgetSchema)) {
+    throw new Error('Widget context schema must include the selected data source context schema');
+  }
+
+  const dataSourceProperties = dataSourceSchema.properties as Record<string, unknown>;
+  const widgetProperties = widgetSchema.properties as Record<string, unknown>;
+
+  for (const [key, dataSourceProperty] of Object.entries(dataSourceProperties)) {
+    if (!Object.prototype.hasOwnProperty.call(widgetProperties, key)) {
+      throw new Error(`Widget context schema is missing data source context property: ${key}`);
+    }
+    if (stableStringify(widgetProperties[key]) !== stableStringify(dataSourceProperty)) {
+      throw new Error(`Widget context property must match data source schema: ${key}`);
+    }
+  }
+
+  const dataSourceRequired = new Set(Array.isArray(dataSourceSchema.required) ? dataSourceSchema.required : []);
+  const widgetRequired = new Set(Array.isArray(widgetSchema.required) ? widgetSchema.required : []);
+
+  for (const key of dataSourceRequired) {
+    if (!widgetRequired.has(key)) {
+      throw new Error(`Widget context schema must require data source context property: ${key}`);
+    }
+  }
+}
+
+async function validateWidgetContextExtendsDataSource(args: JsonObject, existing?: JsonObject | null) {
+  const dataSourceId = args.dataSourceId ?? existing?.dataSourceId;
+  if (dataSourceId === undefined) return;
+  const dataSource = await prisma.dataSource.findUnique({
+    where: { id: asInt(dataSourceId, 'dataSourceId') },
+    select: { contextSchema: true },
+  });
+  if (!dataSource) throw new Error('Data source not found');
+  validateContextSchemaExtension(args.contextSchema ?? existing?.contextSchema, dataSource.contextSchema);
+}
+
 async function validateFrameworkWidgetTemplate(args: JsonObject, existing?: JsonObject | null) {
   const displayType = args.displayType ?? existing?.displayType;
   const template = args.template ?? existing?.template;
@@ -183,6 +296,7 @@ async function validateFrameworkWidgetTemplate(args: JsonObject, existing?: Json
   const result = await frameworkJsxExecutor.execute(String(template || ''), sampleData, {
     width: Number(args.minWidth ?? existing?.minWidth ?? 540),
     height: Number(args.minHeight ?? existing?.minHeight ?? 330),
+    ctx: args.previewContext ?? buildContextDefaults(args.contextSchema ?? existing?.contextSchema),
   });
   if (!result.success) {
     throw new Error(`Framework JSX validation failed: ${result.error || 'Unknown error'}`);
@@ -455,6 +569,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
         url: { type: 'string' },
         method: { type: 'string', enum: ['GET', 'POST'], default: 'GET' },
         headers: { type: 'object' },
+        contextSchema: { type: 'object' },
         refreshInterval: { type: 'integer', default: 300 },
         jsonPath: { type: 'string' },
         isActive: { type: 'boolean', default: true },
@@ -469,6 +584,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
           url: String(args.url),
           method: args.method ?? 'GET',
           headers: args.headers,
+          contextSchema: args.contextSchema,
           refreshInterval: args.refreshInterval ?? 300,
           jsonPath: args.jsonPath,
           isActive: args.isActive ?? true,
@@ -502,6 +618,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
         url: { type: 'string' },
         method: { type: 'string', enum: ['GET', 'POST'] },
         headers: { type: 'object' },
+        contextSchema: { type: 'object' },
         refreshInterval: { type: 'integer' },
         jsonPath: { type: 'string' },
         isActive: { type: 'boolean' },
@@ -518,6 +635,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
           url: args.url,
           method: args.method,
           headers: args.headers,
+          contextSchema: args.contextSchema,
           refreshInterval: args.refreshInterval,
           jsonPath: args.jsonPath,
           isActive: args.isActive,
@@ -544,10 +662,11 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
       properties: {
         id: { type: 'integer' },
         cache: { type: 'boolean', default: false },
+        ctx: { type: 'object' },
       },
     },
     async handler(args) {
-      return fetchDataSourceForDebug(asInt(args.id, 'id'), args.cache === true);
+      return fetchDataSourceForDebug(asInt(args.id, 'id'), args.cache === true, args.ctx ?? {});
     },
   },
 
@@ -563,11 +682,14 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
         displayType: { type: 'string', enum: ['value', 'list', 'script', 'grid', 'framework'] },
         template: { type: 'string' },
         config: { type: 'object' },
+        contextSchema: { type: 'object' },
+        previewContext: { type: 'object' },
         minWidth: { type: 'integer', default: 100 },
         minHeight: { type: 'integer', default: 50 },
       },
     },
     async handler(args) {
+      await validateWidgetContextExtendsDataSource(args);
       await validateFrameworkWidgetTemplate(args);
       return prisma.customWidget.create({
         data: {
@@ -577,6 +699,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
           displayType: String(args.displayType),
           template: args.template,
           config: args.config ?? {},
+          contextSchema: args.contextSchema,
           minWidth: args.minWidth ?? 100,
           minHeight: args.minHeight ?? 50,
         },
@@ -610,6 +733,8 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
         displayType: { type: 'string', enum: ['value', 'list', 'script', 'grid', 'framework'] },
         template: { type: 'string' },
         config: { type: 'object' },
+        contextSchema: { type: 'object' },
+        previewContext: { type: 'object' },
         minWidth: { type: 'integer' },
         minHeight: { type: 'integer' },
       },
@@ -618,6 +743,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
       const id = asInt(args.id, 'id');
       const existing = await prisma.customWidget.findUnique({ where: { id } });
       if (!existing) throw new Error('Custom widget not found');
+      await validateWidgetContextExtendsDataSource(args, existing as JsonObject);
       await validateFrameworkWidgetTemplate(args, existing as JsonObject);
       return prisma.customWidget.update({
         where: { id },
@@ -628,6 +754,7 @@ const tools: Record<string, { description: string; inputSchema: JsonObject; hand
           displayType: args.displayType,
           template: args.template,
           config: args.config,
+          contextSchema: args.contextSchema,
           minWidth: args.minWidth,
           minHeight: args.minHeight,
         }),

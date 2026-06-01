@@ -72,8 +72,11 @@ export class DataSourcesController {
 
   @Post(':id/test')
   @ApiOperation({ summary: 'Test fetch data from source without saving' })
-  testFetch(@Param('id', ParseIntPipe) id: number) {
-    return this.dataSourcesService.testFetch(id);
+  testFetch(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body?: { ctx?: Record<string, unknown> },
+  ) {
+    return this.dataSourcesService.testFetch(id, body?.ctx || {});
   }
 
   @Post(':id/refresh')

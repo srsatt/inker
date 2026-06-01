@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CustomWidgetsService } from './custom-widgets.service';
 import { CreateCustomWidgetDto } from './dto/create-custom-widget.dto';
 import { UpdateCustomWidgetDto } from './dto/update-custom-widget.dto';
+import { PreviewCustomWidgetDto } from './dto/preview-custom-widget.dto';
 
 @ApiTags('Custom Widgets')
 @ApiBearerAuth()
@@ -59,6 +60,15 @@ export class CustomWidgetsController {
   @ApiOperation({ summary: 'Get custom widget with rendered data (uses cached data, no external fetch)' })
   getWithData(@Param('id', ParseIntPipe) id: number) {
     return this.customWidgetsService.getWithData(id, true);
+  }
+
+  @Post(':id/preview')
+  @ApiOperation({ summary: 'Render a saved custom widget preview with screen context' })
+  previewWithContext(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: PreviewCustomWidgetDto,
+  ) {
+    return this.customWidgetsService.getWithData(id, true, { ctx: body?.ctx || {} });
   }
 
   @Patch(':id')

@@ -13,6 +13,7 @@ export interface FrameworkJsxResult {
 export interface FrameworkRenderContext {
   width?: number;
   height?: number;
+  ctx?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -90,11 +91,12 @@ export class FrameworkJsxExecutorService {
     context.eval = undefined;
     context.__dataJson = JSON.stringify(data ?? null);
     context.__widgetJson = JSON.stringify(renderContext);
+    context.__ctxJson = JSON.stringify(renderContext.ctx ?? {});
     context.jsxDEV = (type: string, props: Record<string, any> | null) => jsx(type, props);
     context.Fragment = Fragment;
     context.fetchJson = (url: string, init?: RequestInit) => this.fetchJson(url, init);
     context.fetchText = (url: string, init?: RequestInit) => this.fetchText(url, init);
-    new vm.Script('var $ = JSON.parse(__dataJson); var widget = Object.freeze(JSON.parse(__widgetJson)); __dataJson = undefined; __widgetJson = undefined;').runInContext(context, {
+    new vm.Script('var $ = JSON.parse(__dataJson); var widget = Object.freeze(JSON.parse(__widgetJson)); var ctx = Object.freeze(JSON.parse(__ctxJson)); __dataJson = undefined; __widgetJson = undefined; __ctxJson = undefined;').runInContext(context, {
       timeout: this.TIMEOUT_MS,
     });
     return context;

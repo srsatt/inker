@@ -936,9 +936,12 @@ export const dataSourceService = {
     }
   },
 
-  async testFetch(id: number): Promise<DataSourceTestResult> {
+  async testFetch(id: number, ctx?: Record<string, unknown>): Promise<DataSourceTestResult> {
     try {
-      const response = await apiClient.post<ApiResponse<DataSourceTestResult>>(`/data-sources/${id}/test`);
+      const response = await apiClient.post<ApiResponse<DataSourceTestResult>>(
+        `/data-sources/${id}/test`,
+        ctx ? { ctx } : {},
+      );
       return response.data.data;
     } catch (error) {
       throw new Error(getErrorMessage(error));
@@ -1028,9 +1031,11 @@ export const customWidgetService = {
     }
   },
 
-  async getPreview(id: number): Promise<CustomWidgetPreview> {
+  async getPreview(id: number, ctx?: Record<string, unknown>): Promise<CustomWidgetPreview> {
     try {
-      const response = await apiClient.get<ApiResponse<CustomWidgetPreview>>(`/custom-widgets/${id}/preview`);
+      const response = ctx
+        ? await apiClient.post<ApiResponse<CustomWidgetPreview>>(`/custom-widgets/${id}/preview`, { ctx })
+        : await apiClient.get<ApiResponse<CustomWidgetPreview>>(`/custom-widgets/${id}/preview`);
       return response.data.data;
     } catch (error) {
       throw new Error(getErrorMessage(error));

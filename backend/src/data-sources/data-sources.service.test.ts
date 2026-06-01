@@ -137,8 +137,8 @@ describe('DataSourcesService', () => {
   // ─── expandUrlTemplate ───────────────────────────────────────────────
 
   describe('expandUrlTemplate()', () => {
-    const expand = (url: string, now: Date) =>
-      (service as any).expandUrlTemplate(url, now);
+    const expand = (url: string, now: Date, ctx: Record<string, unknown> = {}) =>
+      (service as any).expandUrlTemplate(url, now, ctx);
 
     it('should expand today token in a data source URL', () => {
       const result = expand(
@@ -165,6 +165,16 @@ describe('DataSourcesService', () => {
       );
 
       expect(result).toBe('https://example.com/events?from=2026-05-12&to=2026-05-14');
+    });
+
+    it('should expand widget context tokens', () => {
+      const result = expand(
+        'https://example.com/weather/{ctx.city}?units={ctx.units}',
+        new Date('2026-05-13T12:00:00.000Z'),
+        { city: 'New York', units: 'metric' },
+      );
+
+      expect(result).toBe('https://example.com/weather/New%20York?units=metric');
     });
   });
 
@@ -430,6 +440,35 @@ describe('DataSourcesService', () => {
       const updateCall = mockPrisma.dataSource.update.calls[0];
       const savedHeaders = updateCall[0].data.headers;
       expect(savedHeaders).toEqual({ Authorization: 'Bearer brand-new-token' });
+    });
+
+    it('should reject a datasource context schema that existing widgets do not extend', async () => {
+      mockPrisma.dataSource.findUnique.mockResolvedValue({
+        id: 1,
+        name: 'Weather',
+        headers: {},
+      });
+      mockPrisma.customWidget.findMany.mockResolvedValue([
+        {
+          name: 'Berlin Weather',
+          contextSchema: {
+            type: 'object',
+            properties: {
+              city: { type: 'string', title: 'City' },
+            },
+          },
+        },
+      ]);
+
+      await expect(service.update(1, {
+        contextSchema: {
+          type: 'object',
+          properties: {
+            city: { type: 'string', title: 'City' },
+          },
+          required: ['city'],
+        },
+      } as any)).rejects.toThrow(BadRequestException);
     });
   });
 

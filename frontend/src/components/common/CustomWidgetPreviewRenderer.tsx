@@ -197,6 +197,10 @@ export function CustomWidgetPreviewRenderer({
   width = 150,
   height = 80,
 }: CustomWidgetPreviewRendererProps) {
+  if (renderedContent) {
+    return renderServerContent(renderedContent, fontSize);
+  }
+
   if (!sampleData) {
     return (
       <div className="text-text-placeholder text-sm">
@@ -206,10 +210,6 @@ export function CustomWidgetPreviewRenderer({
   }
 
   try {
-    if (renderedContent) {
-      return renderServerContent(renderedContent, fontSize);
-    }
-
     switch (displayType) {
       case 'value': {
         const field = (config.field as string) || '';

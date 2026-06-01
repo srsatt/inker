@@ -26,6 +26,12 @@ function mapFontFamily(fontFamily: string): string {
   }
 }
 
+function getWidgetContext(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 interface WidgetRendererProps {
   widget: ScreenWidget;
   template: WidgetTemplate;
@@ -1261,6 +1267,8 @@ function CustomWidgetRenderer({ config }: { config: Record<string, unknown> }) {
   const [widgetConfig, setWidgetConfig] = useState<Record<string, unknown>>({});
 
   const customWidgetId = config.customWidgetId as number;
+  const widgetContext = getWidgetContext(config.ctx);
+  const widgetContextKey = JSON.stringify(widgetContext);
 
   // Font settings from screen designer config
   const fontSize = (config.fontSize as number) || 24;
@@ -1289,7 +1297,7 @@ function CustomWidgetRenderer({ config }: { config: Record<string, unknown> }) {
     const fetchPreview = async () => {
       try {
         setLoading(true);
-        const preview = await customWidgetService.getPreview(customWidgetId);
+        const preview = await customWidgetService.getPreview(customWidgetId, widgetContext);
         if (!isMounted) return;
         setRenderedContent(preview.renderedContent);
         // Store the widget's config so we know fieldType, valueFieldType, etc.
@@ -1307,7 +1315,7 @@ function CustomWidgetRenderer({ config }: { config: Record<string, unknown> }) {
     return () => {
       isMounted = false;
     };
-  }, [customWidgetId]);
+  }, [customWidgetId, widgetContextKey]);
 
   if (loading) {
     return (

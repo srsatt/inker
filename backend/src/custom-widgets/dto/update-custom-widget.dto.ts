@@ -58,6 +58,27 @@ export class UpdateCustomWidgetDto {
   config?: Record<string, unknown>;
 
   @ApiPropertyOptional({
+    example: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', title: 'City' },
+      },
+    },
+    description: 'Optional JSON Schema for per-screen widget context',
+  })
+  @IsOptional()
+  @IsObject()
+  contextSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    example: { city: 'Berlin' },
+    description: 'Context values for draft preview only',
+  })
+  @IsOptional()
+  @IsObject()
+  previewContext?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
     example: 150,
     description: 'Minimum widget width in pixels',
   })

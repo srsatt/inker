@@ -5,6 +5,27 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { MainLayout } from '../../components/layout';
 import type { DataSourceFormData, DataSourceTestResult, FieldMeta } from '../../types';
 
+function formatJson(value: Record<string, unknown> | null | undefined): string {
+  return value ? JSON.stringify(value, null, 2) : '';
+}
+
+function parseJsonObject(text: string, label: string): { value: Record<string, unknown> | null; error: string | null } {
+  if (!text.trim()) return { value: null, error: null };
+
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { value: null, error: `${label} must be a JSON object` };
+    }
+    return { value: parsed as Record<string, unknown>, error: null };
+  } catch (error) {
+    return {
+      value: null,
+      error: error instanceof Error ? error.message : `Invalid ${label}`,
+    };
+  }
+}
+
 export function DataSourceForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -23,6 +44,7 @@ export function DataSourceForm() {
     url: '',
     method: 'GET',
     headers: {},
+    contextSchema: null,
     refreshInterval: 300,
     isActive: true,
   });
@@ -31,6 +53,10 @@ export function DataSourceForm() {
   const [headerValue, setHeaderValue] = useState('');
   const [showRawData, setShowRawData] = useState(false);
   const [expandedArrays, setExpandedArrays] = useState<Set<string>>(new Set());
+  const [contextSchemaText, setContextSchemaText] = useState('');
+  const [contextSchemaError, setContextSchemaError] = useState<string | null>(null);
+  const [testContextText, setTestContextText] = useState('');
+  const [testContextError, setTestContextError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isEditing && id) {
@@ -49,9 +75,12 @@ export function DataSourceForm() {
         url: ds.url,
         method: ds.method,
         headers: ds.headers || {},
+        contextSchema: ds.contextSchema ?? null,
         refreshInterval: ds.refreshInterval,
         isActive: ds.isActive,
       });
+      setContextSchemaText(formatJson(ds.contextSchema));
+      setContextSchemaError(null);
     } catch {
       showNotification('error', 'Failed to load data source');
       navigate('/extensions');
@@ -70,6 +99,11 @@ export function DataSourceForm() {
 
     if (!formData.url.trim()) {
       showNotification('error', 'URL is required');
+      return;
+    }
+
+    if (contextSchemaError) {
+      showNotification('error', `Context schema is invalid: ${contextSchemaError}`);
       return;
     }
 
@@ -102,15 +136,22 @@ export function DataSourceForm() {
       return;
     }
 
+    if (testContextError) {
+      showNotification('error', `Test context is invalid: ${testContextError}`);
+      return;
+    }
+
     try {
       setTesting(true);
       setTestResult(null);
+      const { value: ctx } = parseJsonObject(testContextText, 'Test context');
 
       const result = await dataSourceService.testUrl({
         url: formData.url,
         type: formData.type,
         method: formData.method,
         headers: formData.headers,
+        ...(ctx ? { ctx } : {}),
         ...(id ? { dataSourceId: parseInt(id, 10) } : {}),
       });
 
@@ -146,6 +187,20 @@ export function DataSourceForm() {
     const newHeaders = { ...formData.headers };
     delete newHeaders[key];
     setFormData({ ...formData, headers: newHeaders });
+  };
+
+  const updateContextSchemaText = (value: string) => {
+    setContextSchemaText(value);
+    const { value: schema, error } = parseJsonObject(value, 'Context schema');
+    setContextSchemaError(error);
+    if (!error) {
+      setFormData((prev) => ({ ...prev, contextSchema: schema }));
+    }
+  };
+
+  const updateTestContextText = (value: string) => {
+    setTestContextText(value);
+    setTestContextError(parseJsonObject(value, 'Test context').error);
   };
 
   /**
@@ -383,6 +438,58 @@ export function DataSourceForm() {
                 <p className="mt-1 text-xs text-text-muted">
                   Click "Test URL" to see available fields before saving
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-text-secondary">Context JSON Schema</label>
+                <textarea
+                  value={contextSchemaText}
+                  onChange={(e) => updateContextSchemaText(e.target.value)}
+                  rows={8}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent font-mono text-sm ${
+                    contextSchemaError ? 'border-status-error-border' : 'border-border-default'
+                  }`}
+                  placeholder={`{
+  "type": "object",
+  "properties": {
+    "city": {
+      "type": "string",
+      "title": "City",
+      "default": "Berlin"
+    }
+  },
+  "required": ["city"]
+}`}
+                />
+                {contextSchemaError ? (
+                  <p className="text-xs text-status-error-text">{contextSchemaError}</p>
+                ) : (
+                  <p className="text-xs text-text-muted">
+                    Values from this schema can be used in the URL as <code className="bg-bg-muted px-1 rounded">{'{ctx.city}'}</code>.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-text-secondary">Test Context</label>
+                <textarea
+                  value={testContextText}
+                  onChange={(e) => updateTestContextText(e.target.value)}
+                  rows={4}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent font-mono text-sm ${
+                    testContextError ? 'border-status-error-border' : 'border-border-default'
+                  }`}
+                  placeholder={`{
+  "city": "Berlin"
+}`}
+                />
+                {testContextError ? (
+                  <p className="text-xs text-status-error-text">{testContextError}</p>
+                ) : (
+                  <p className="text-xs text-text-muted">
+                    Used only by Test URL to resolve <code className="bg-bg-muted px-1 rounded">{'{ctx.*}'}</code> placeholders.
+                  </p>
+                )}
               </div>
 
               {formData.type === 'json' && (

@@ -327,7 +327,8 @@ describe('CustomWidgetsService', () => {
       template: string | null,
       config: Record<string, unknown>,
       data: unknown,
-    ) => (service as any).renderContent(displayType, template, config, data);
+      ctx: Record<string, unknown> = {},
+    ) => (service as any).renderContent(displayType, template, config, data, { ctx });
 
     it('should dispatch to renderValue for "value" type', () => {
       const result = renderContent('value', null, { field: 'x' }, { x: 'ok' });
@@ -347,6 +348,17 @@ describe('CustomWidgetsService', () => {
         {},
       );
       expect(result).toBe('1');
+    });
+
+    it('should expose widget context to script rendering', () => {
+      const result = renderContent(
+        'script',
+        null,
+        { scriptCode: 'return ctx.city;', scriptOutputMode: 'value' },
+        {},
+        { city: 'Berlin' },
+      );
+      expect(result).toBe('Berlin');
     });
 
     it('should dispatch to renderGrid for "grid" type', () => {
@@ -532,6 +544,52 @@ describe('CustomWidgetsService', () => {
       expect(result.widget).toEqual(widget);
       expect(result.data).toEqual({ price: 100 });
       expect(result.renderedContent).toBe('$100');
+      expect(mockDataSourcesService.getCachedData.calls[0]).toEqual([5, false, {}]);
+    });
+
+    it('should render with supplied widget context', async () => {
+      const widget = {
+        id: 1,
+        name: 'Test',
+        dataSourceId: 5,
+        displayType: 'script',
+        template: null,
+        config: { scriptCode: 'return ctx.city;', scriptOutputMode: 'value' },
+        contextSchema: null,
+        dataSource: { id: 5 },
+      };
+      mockPrisma.customWidget.findUnique.mockResolvedValue(widget);
+      mockDataSourcesService.getCachedData.mockResolvedValue({});
+
+      const result = await service.getWithData(1, true, { ctx: { city: 'Berlin' } });
+
+      expect(result.renderedContent).toBe('Berlin');
+      expect(mockDataSourcesService.getCachedData.calls[0]).toEqual([5, true, { city: 'Berlin' }]);
+    });
+
+    it('should use context schema defaults when no widget context is supplied', async () => {
+      const widget = {
+        id: 1,
+        name: 'Test',
+        dataSourceId: 5,
+        displayType: 'script',
+        template: null,
+        config: { scriptCode: 'return ctx.city;', scriptOutputMode: 'value' },
+        contextSchema: {
+          type: 'object',
+          properties: {
+            city: { type: 'string', default: 'Berlin' },
+          },
+        },
+        dataSource: { id: 5 },
+      };
+      mockPrisma.customWidget.findUnique.mockResolvedValue(widget);
+      mockDataSourcesService.getCachedData.mockResolvedValue({});
+
+      const result = await service.getWithData(1, true);
+
+      expect(result.renderedContent).toBe('Berlin');
+      expect(mockDataSourcesService.getCachedData.calls[0]).toEqual([5, true, { city: 'Berlin' }]);
     });
   });
 });

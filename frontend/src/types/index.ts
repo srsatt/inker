@@ -135,6 +135,7 @@ export interface DataSource {
   url: string;
   method: 'GET' | 'POST';
   headers?: Record<string, string>;
+  contextSchema?: Record<string, unknown> | null;
   refreshInterval: number;
   jsonPath?: string;
   isActive: boolean;
@@ -155,6 +156,7 @@ export interface DataSourceFormData {
   url: string;
   method?: 'GET' | 'POST';
   headers?: Record<string, string>;
+  contextSchema?: Record<string, unknown> | null;
   refreshInterval?: number;
   jsonPath?: string;
   isActive?: boolean;
@@ -188,6 +190,7 @@ export interface TestUrlRequest {
   type: 'json' | 'rss';
   method?: string;
   headers?: Record<string, string>;
+  ctx?: Record<string, unknown>;
   dataSourceId?: number;
 }
 
@@ -245,6 +248,7 @@ export interface CustomWidget {
   displayType: CustomWidgetDisplayType;
   template?: string;
   config: Record<string, unknown>;
+  contextSchema?: Record<string, unknown> | null;
   minWidth: number;
   minHeight: number;
   createdAt: string;
@@ -258,6 +262,8 @@ export interface CustomWidgetFormData {
   displayType: CustomWidgetDisplayType;
   template?: string;
   config?: Record<string, unknown>;
+  contextSchema?: Record<string, unknown> | null;
+  previewContext?: Record<string, unknown>;
   minWidth?: number;
   minHeight?: number;
 }

@@ -26,6 +26,11 @@ export class TestUrlDto {
   @IsObject()
   headers?: Record<string, string>;
 
+  @ApiPropertyOptional({ description: 'Context values used for {ctx.foo} URL interpolation' })
+  @IsOptional()
+  @IsObject()
+  ctx?: Record<string, unknown>;
+
   @ApiPropertyOptional({ description: 'Existing data source ID — used to unmask sensitive headers' })
   @IsOptional()
   @IsNumber()
