@@ -87,6 +87,12 @@ By default it exposes `http://birdnet-pi.local:3337` and forwards traffic back t
 bun run proxy:rpi:down
 ```
 
+Override the proxy ports or target manually with environment variables:
+
+```bash
+RPI_PUBLIC_PORT=3339 RPI_LOCAL_PORT=3337 bun run scripts/local/rpi-proxy.ts
+```
+
 ### Docker Compose
 
 ```yaml

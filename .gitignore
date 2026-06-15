@@ -33,9 +33,12 @@ npm-debug.log*
 
 # Local tunnel/proxy state
 .inker-proxy/
+scripts/.inker-proxy/
 
 # Local helper scripts
 scripts/local/
+!scripts/local/
+!scripts/local/rpi-proxy.ts
 backend/test-lint.js
 backend/test-weather.js
 

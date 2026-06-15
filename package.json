@@ -12,6 +12,8 @@
     "db:push": "bun run --cwd backend prisma:push",
     "db:seed": "bun run --cwd backend prisma:seed",
     "mcp": "bun run --silent --cwd backend mcp",
+    "proxy:rpi": "bun run scripts/local/rpi-proxy.ts",
+    "proxy:rpi:down": "bun run scripts/local/rpi-proxy.ts --down",
     "build": "bun run --cwd frontend build && bun run --cwd backend build",
     "start": "bun run --cwd backend start:prod"
   }
