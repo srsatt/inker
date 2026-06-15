@@ -183,4 +183,4 @@ cd frontend && bun run test  # 19 tests
 
 ## License
 
-Source Available — see [LICENSE](LICENSE) for details.
+GNU Affero General Public License v3.0 — see [LICENSE](LICENSE) for details.
