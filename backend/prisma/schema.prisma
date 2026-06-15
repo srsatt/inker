@@ -1,7 +1,7 @@
 // Inker Database Schema
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider   = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {

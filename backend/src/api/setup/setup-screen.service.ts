@@ -1,7 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import * as sharpModule from 'sharp';
-// Handle both ESM and CJS imports for Bun compatibility
-const sharp = (sharpModule as any).default || sharpModule;
+import sharp from '../../common/utils/sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';

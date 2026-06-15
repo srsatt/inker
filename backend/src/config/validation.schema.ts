@@ -20,7 +20,7 @@ export const validationSchema = Joi.object({
   FIRMWARE_DIR: Joi.string().default('./uploads/firmware'),
 
   // Rendering
-  SCREEN_RENDERER_ENGINE: Joi.string().valid('puppeteer', 'satori').default('puppeteer'),
+  SCREEN_RENDERER_ENGINE: Joi.string().valid('puppeteer', 'satori', 'takumi').default('puppeteer'),
 
   // Device configuration
   DEVICE_POLLING_INTERVAL: Joi.number().default(60000),

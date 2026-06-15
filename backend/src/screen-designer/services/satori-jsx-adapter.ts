@@ -21,10 +21,12 @@ export function renderJsxToSatoriNode(node: JsxChild): any {
       || value === undefined
       || value === false
       || key === 'className'
+      || key === 'key'
+      || key === 'ref'
     ) {
       continue;
     }
-    props[key] = key === 'style' ? styleToObject(value) : value;
+    props[key] = key === 'style' ? sanitizeStyle(styleToObject(value)) : value;
   }
 
   props.children = node.props.dangerouslySetInnerHTML?.__html !== undefined
@@ -52,7 +54,7 @@ function ultraHtmlNodeToSatori(node: UltraHtmlNode): any {
   const props: Record<string, any> = {};
   for (const [key, value] of Object.entries(node.attributes || {})) {
     if (key === 'class') continue;
-    props[toCamelCase(key)] = key === 'style' ? styleToObject(value) : value;
+    props[toCamelCase(key)] = key === 'style' ? sanitizeStyle(styleToObject(value)) : value;
   }
   props.children = normalize((node.children || []).map(ultraHtmlNodeToSatori));
   ensureDisplayForSatori(node.name, props);
@@ -80,6 +82,21 @@ function styleToObject(style: Record<string, any> | string): Record<string, any>
       result[toCamelCase(declaration.slice(0, separator).trim())] = declaration.slice(separator + 1).trim();
       return result;
     }, {});
+}
+
+function sanitizeStyle(style: Record<string, any>): Record<string, any> {
+  const blocked = new Set([
+    'WebkitFontSmoothing',
+    'MozOsxFontSmoothing',
+    'textRendering',
+    'textOverflow',
+  ]);
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(style)) {
+    if (blocked.has(key) || value === undefined || value === null || value === '') continue;
+    sanitized[key] = value;
+  }
+  return sanitized;
 }
 
 function normalize(children: any[]): any {

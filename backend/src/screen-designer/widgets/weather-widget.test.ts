@@ -3,6 +3,7 @@ import { WeatherWidgetService } from './weather-widget.service';
 import { WeatherDataService } from './weather-data.service';
 import { WidgetStyleService } from './widget-style.service';
 import { lintSatoriNode } from '../services/satori-jsx-linter';
+import { renderJsxToHtml } from '../services/screen-render-document';
 
 describe('WeatherWidgetService', () => {
   let service: WeatherWidgetService;
@@ -63,5 +64,26 @@ describe('WeatherWidgetService', () => {
     expect(result.content).toBeDefined();
     expect(result.style).toBeDefined();
     expect(lintSatoriNode(result.content)).toEqual([]);
+  });
+
+  it('renders all weather text in e-ink black', async () => {
+    const result = await service.render({
+      config: {
+        location: 'Test Location',
+        fontSize: 32,
+        showDayName: true,
+        forecastDay: 1,
+        showCondition: true,
+        showHumidity: true,
+        showWind: true,
+        showLocation: true,
+      },
+    });
+
+    const html = renderJsxToHtml(result.content);
+    expect(html).not.toContain('#666');
+    expect(html).not.toContain('#888');
+    expect(html).not.toContain('#999');
+    expect(html).toContain('#000000');
   });
 });

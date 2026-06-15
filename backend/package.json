@@ -5,7 +5,10 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "bun run nest build",
+    "build:device": "bun build src/main.device.ts --outdir build/device --target=bun -e '@nestjs/websockets/*' -e '@nestjs/microservices' -e '@nestjs/microservices/*' -e '@fastify/static' -e '@mikro-orm/core' -e '@nestjs/mongoose' -e '@nestjs/sequelize/*' -e '@nestjs/typeorm/*' -e 'class-transformer/storage'",
+    "compile:device:rpi": "bun build --compile --target=bun-linux-arm64 --outfile build/rpi/inker-device src/main.device.ts -e '@nestjs/websockets/*' -e '@nestjs/microservices' -e '@nestjs/microservices/*' -e '@fastify/static' -e '@mikro-orm/core' -e '@nestjs/mongoose' -e '@nestjs/sequelize/*' -e '@nestjs/typeorm/*' -e 'class-transformer/storage'",
     "start": "bun run nest start",
+    "start:device": "bun run src/main.device.ts",
     "start:dev": "bun --watch run src/main.ts",
     "start:debug": "bun --watch --inspect run src/main.ts",
     "start:prod": "bun run dist/main.js",
@@ -35,6 +38,7 @@
     "@nestjs/swagger": "^7.1.17",
     "@nestjs/terminus": "^10.2.0",
     "@nestjs/throttler": "^5.1.0",
+    "@prisma/adapter-libsql": "6.19.3",
     "@prisma/client": "^6.0.0",
     "axios": "^1.13.5",
     "class-transformer": "^0.5.1",
@@ -52,6 +56,7 @@
     "rxjs": "^7.8.1",
     "satori": "^0.26.0",
     "sharp": "^0.33.1",
+    "takumi-js": "^1.8.5",
     "ultrahtml": "^1.6.0",
     "winston": "^3.11.0"
   },

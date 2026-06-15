@@ -1,9 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SettingsService } from '../../settings/settings.service';
-import * as sharpModule from 'sharp';
-// Handle both ESM and CJS imports for Bun compatibility
-const sharp = (sharpModule as any).default || sharpModule;
+import sharp from '../../common/utils/sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';
@@ -45,15 +43,12 @@ export class DefaultScreenService implements OnModuleInit {
   }
 
   /**
-   * Generate default screen on module initialization
-   * Always regenerates from config to ensure saved title/subtitle are applied
+   * Ensure default screen exists on module initialization.
+   * Regeneration is explicit so startup does not pay the sharp pipeline on every boot.
    */
   async onModuleInit() {
     try {
-      await fs.mkdir(this.assetsDir, { recursive: true });
-      await this.generateDefaultScreen();
-      this.defaultScreenGenerated = true;
-      this.logger.log(`Default screen generated at: ${this.defaultScreenPath}`);
+      await this.ensureDefaultScreenExists();
     } catch (error) {
       this.logger.error('Failed to generate default screen:', error);
     }

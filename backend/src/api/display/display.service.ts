@@ -9,7 +9,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { DefaultScreenService } from './default-screen.service';
 import { ScreenRendererService } from '../../screen-designer/services/screen-renderer.service';
-import { PluginsService } from '../../plugins/plugins.service';
 import { SetupService } from '../setup/setup.service';
 import { imageBufferTo1BitBmp } from '../../common/utils/bmp.util';
 
@@ -32,7 +31,6 @@ export class DisplayService {
     private config: ConfigService,
     private defaultScreenService: DefaultScreenService,
     private screenRendererService: ScreenRendererService,
-    private pluginsService: PluginsService,
     private setupService: SetupService,
   ) {}
 

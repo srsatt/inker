@@ -11,11 +11,9 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CustomWidgetsService } from '../../custom-widgets/custom-widgets.service';
 import { SettingsService } from '../../settings/settings.service';
-import * as sharpModule from 'sharp';
+import sharp from '../../common/utils/sharp';
 import type { Sharp, FitEnum } from 'sharp';
-// Handle both ESM and CJS imports for Bun compatibility
-const sharp = (sharpModule as any).default || sharpModule;
-import puppeteer, { Browser } from 'puppeteer';
+import type { Browser } from 'puppeteer';
 import QRCode from 'qrcode';
 import { validateUrlSafety, UrlSafetyOptions } from '../../common/utils/url-safety';
 import { encode1BitBmpFromGrayscale } from '../../common/utils/bmp.util';
@@ -119,11 +117,11 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
   private readonly WEATHER_CACHE_MAX_SIZE = 50;
 
   constructor(
-    private prisma: PrismaService,
-    private customWidgetsService: CustomWidgetsService,
-    private configService: ConfigService,
-    private settingsService: SettingsService,
-    private readonly screenComposer: ScreenComposerService,
+    protected prisma: PrismaService,
+    protected customWidgetsService: CustomWidgetsService,
+    protected configService: ConfigService,
+    protected settingsService: SettingsService,
+    protected readonly screenComposer: ScreenComposerService,
   ) {}
 
   private async getUrlSafetyOptions(): Promise<UrlSafetyOptions> {
@@ -148,6 +146,14 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
    */
   async onModuleInit() {
     try {
+      if (
+        this.constructor === PuppeteerScreenRendererService
+        && this.configService.get<string>('renderer.engine') === 'satori'
+      ) {
+        this.logger.debug('Skipping Puppeteer font preload while Satori renderer is active');
+        return;
+      }
+
       const fontsDir = path.join(process.cwd(), 'assets', 'fonts');
 
       if (!fs.existsSync(fontsDir)) {
@@ -252,6 +258,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
 
     if (!this.browser) {
       this.logger.debug('Launching new Puppeteer browser instance');
+      const { default: puppeteer } = await import('puppeteer');
       this.browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -450,7 +457,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
    * Internal render method - uses HTML/CSS + Puppeteer for pixel-perfect rendering
    * @param mode - Render mode: 'device' (full e-ink), 'preview' (no processing), 'einkPreview' (e-ink without inversion)
    */
-  private async renderDesign(
+  protected async renderDesign(
     screenDesign: ScreenDesignWithWidgets,
     deviceContext?: DeviceContext,
     mode: RenderMode = 'device',
@@ -601,7 +608,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     return buffer;
   }
 
-  private applyMonochromeProcessing(
+  protected applyMonochromeProcessing(
     data: Buffer,
     width: number,
     height: number,
@@ -3176,7 +3183,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     try {
       const weatherData = await this.fetchWeatherData(latitude, longitude, forecastDay, forecastTime);
       if (!weatherData) {
-        return `<div style="color: #666;">${this.escapeHtml(location)}<br>Weather unavailable</div>`;
+        return `<div style="color: #000000;">${this.escapeHtml(location)}<br>Weather unavailable</div>`;
       }
 
       const condition = this.getWeatherCondition(weatherData.weatherCode);
@@ -3193,7 +3200,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
       let html = '<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">';
 
       if (showDayName && forecastDay > 0) {
-        html += `<div style="font-size: ${smallFontSize}px; color: #666;">${weatherData.dayName}</div>`;
+        html += `<div style="font-size: ${smallFontSize}px; color: #000000;">${weatherData.dayName}</div>`;
       }
 
       html += '<div style="display: flex; align-items: center; gap: 8px;">';
@@ -3205,24 +3212,24 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
         html += `<div style="font-size: ${fontSize}px; font-weight: bold;">${displayTemp}${tempUnit}</div>`;
       }
       if (showCondition) {
-        html += `<div style="font-size: ${smallFontSize}px; color: #666;">${condition.text}</div>`;
+        html += `<div style="font-size: ${smallFontSize}px; color: #000000;">${condition.text}</div>`;
       }
       html += '</div></div>';
 
       if (showHumidity) {
-        html += `<div style="font-size: ${smallFontSize}px; color: #888;">Humidity: ${weatherData.humidity}%</div>`;
+        html += `<div style="font-size: ${smallFontSize}px; color: #000000;">Humidity: ${weatherData.humidity}%</div>`;
       }
       if (showWind) {
-        html += `<div style="font-size: ${smallFontSize}px; color: #888;">Wind: ${displayWind} ${windUnit}</div>`;
+        html += `<div style="font-size: ${smallFontSize}px; color: #000000;">Wind: ${displayWind} ${windUnit}</div>`;
       }
       if (showLocation) {
-        html += `<div style="font-size: ${smallFontSize * 0.9}px; color: #999; margin-top: 4px;">${this.escapeHtml(location)}</div>`;
+        html += `<div style="font-size: ${smallFontSize * 0.9}px; color: #000000; margin-top: 4px;">${this.escapeHtml(location)}</div>`;
       }
 
       html += '</div>';
       return html;
     } catch {
-      return `<div style="color: #666;">${this.escapeHtml(location)}<br>Weather unavailable</div>`;
+      return `<div style="color: #000000;">${this.escapeHtml(location)}<br>Weather unavailable</div>`;
     }
   }
 

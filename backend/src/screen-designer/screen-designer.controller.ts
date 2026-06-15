@@ -18,9 +18,7 @@ import type { Multer } from 'multer';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as sharpModule from 'sharp';
-// Handle both ESM and CJS imports for Bun compatibility
-const sharp = (sharpModule as any).default || sharpModule;
+import sharp from '../common/utils/sharp';
 
 // Max file size for widget images (90KB for e-ink devices)
 const MAX_WIDGET_IMAGE_SIZE = 90000;

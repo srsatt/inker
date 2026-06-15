@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -79,6 +78,7 @@ async function bootstrap() {
 
   // Swagger documentation setup
   if (environment !== 'production') {
+    const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
     const config = new DocumentBuilder()
       .setTitle('Inker API')
       .setDescription('API documentation for Inker e-ink device management server')

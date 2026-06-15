@@ -7,6 +7,7 @@ import { WidgetStyleService } from './widget-style.service';
 @Injectable()
 export class WeatherWidgetService implements ScreenWidgetContentRenderer {
   readonly templateName = 'weather';
+  private readonly textColor = '#000000';
 
   constructor(
     private readonly weather: WeatherDataService,
@@ -21,7 +22,7 @@ export class WeatherWidgetService implements ScreenWidgetContentRenderer {
     if (!data) {
       return {
         content: (
-          <div style={{ display: 'flex', flexDirection: 'column', color: '#666' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', color: this.textColor }}>
             <div>{location}</div>
             <div>Weather unavailable</div>
           </div>
@@ -36,18 +37,18 @@ export class WeatherWidgetService implements ScreenWidgetContentRenderer {
 
     return {
       content: (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-          {config.showDayName && config.forecastDay > 0 ? <div style={{ fontSize: `${small}px`, color: '#666' }}>{data.dayName}</div> : null}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', color: this.textColor }}>
+          {config.showDayName && config.forecastDay > 0 ? <div style={{ fontSize: `${small}px`, color: this.textColor }}>{data.dayName}</div> : null}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {config.showIcon !== false ? this.icon(condition.icon, Math.min(fontSize * 1.5, 48)) : null}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {config.showTemperature !== false ? <div style={{ fontSize: `${fontSize}px`, fontWeight: 'bold' }}>{`${temp}${unit}`}</div> : null}
-              {config.showCondition !== false ? <div style={{ fontSize: `${small}px`, color: '#666' }}>{condition.text}</div> : null}
+              {config.showCondition !== false ? <div style={{ fontSize: `${small}px`, color: this.textColor }}>{condition.text}</div> : null}
             </div>
           </div>
-          {config.showHumidity ? <div style={{ fontSize: `${small}px`, color: '#888' }}>{`Humidity: ${data.humidity}%`}</div> : null}
-          {config.showWind ? <div style={{ fontSize: `${small}px`, color: '#888' }}>{`Wind: ${data.windSpeed}`}</div> : null}
-          {config.showLocation !== false ? <div style={{ fontSize: `${small * 0.9}px`, color: '#999', marginTop: '4px' }}>{location}</div> : null}
+          {config.showHumidity ? <div style={{ fontSize: `${small}px`, color: this.textColor }}>{`Humidity: ${data.humidity}%`}</div> : null}
+          {config.showWind ? <div style={{ fontSize: `${small}px`, color: this.textColor }}>{`Wind: ${data.windSpeed}`}</div> : null}
+          {config.showLocation !== false ? <div style={{ fontSize: `${small * 0.9}px`, color: this.textColor, marginTop: '4px' }}>{location}</div> : null}
         </div>
       ),
       style: this.styles(),

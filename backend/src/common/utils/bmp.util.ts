@@ -1,6 +1,4 @@
-import * as sharpModule from 'sharp';
-
-const sharp = (sharpModule as any).default || sharpModule;
+import sharp from './sharp';
 
 const BMP_FILE_HEADER_SIZE = 14;
 const DIB_HEADER_SIZE = 40;
@@ -53,6 +51,25 @@ export function encode1BitBmpFromGrayscale(
   }
 
   return output;
+}
+
+export function rgbaToGrayscale(data: Uint8Array, width: number, height: number): Buffer {
+  const output = Buffer.alloc(width * height);
+  for (let i = 0, pixel = 0; i < data.length; i += 4, pixel++) {
+    const alpha = data[i + 3] ?? 255;
+    const gray = Math.round((data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000);
+    output[pixel] = Math.round((gray * alpha + 255 * (255 - alpha)) / 255);
+  }
+  return output;
+}
+
+export function encode1BitBmpFromRgba(
+  data: Uint8Array,
+  width: number,
+  height: number,
+  threshold: number = 128,
+): Buffer {
+  return encode1BitBmpFromGrayscale(rgbaToGrayscale(data, width, height), width, height, threshold);
 }
 
 export async function imageBufferTo1BitBmp(

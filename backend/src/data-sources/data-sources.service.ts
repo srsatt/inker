@@ -5,9 +5,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateDataSourceDto } from './dto/create-data-source.dto';
-import { UpdateDataSourceDto } from './dto/update-data-source.dto';
-import { TestUrlDto } from './dto/test-url.dto';
+import type { CreateDataSourceDto } from './dto/create-data-source.dto';
+import type { UpdateDataSourceDto } from './dto/update-data-source.dto';
+import type { TestUrlDto } from './dto/test-url.dto';
 import { wrapListResponse, wrapPaginatedResponse } from '../common/utils/response.util';
 import axios from 'axios';
 import {

@@ -6,6 +6,7 @@ import { ApiController } from './api.controller';
 import { DisplayService } from './display/display.service';
 import { DefaultScreenService } from './display/default-screen.service';
 import { SetupService } from './setup/setup.service';
+import { SetupScreenService } from './setup/setup-screen.service';
 import { LogService } from './log/log.service';
 import { ScreenRendererService } from '../screen-designer/services/screen-renderer.service';
 import { ConfigService } from '@nestjs/config';
@@ -45,6 +46,10 @@ describe('ApiController (e2e)', () => {
     getDefaultScreenBuffer: async () => Buffer.from('PNG'),
   };
 
+  const mockSetupScreenService = {
+    getSetupScreenBmpBuffer: async () => Buffer.from('BMP'),
+  };
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [ApiController],
@@ -52,6 +57,7 @@ describe('ApiController (e2e)', () => {
         { provide: DisplayService, useValue: mockDisplayService },
         { provide: DefaultScreenService, useValue: mockDefaultScreenService },
         { provide: SetupService, useValue: mockSetupService },
+        { provide: SetupScreenService, useValue: mockSetupScreenService },
         { provide: LogService, useValue: mockLogService },
         { provide: ScreenRendererService, useValue: mockScreenRendererService },
         { provide: ConfigService, useValue: { get: (key: string, defaultValue?: unknown) => defaultValue } },

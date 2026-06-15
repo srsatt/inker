@@ -75,7 +75,7 @@ export class FrameworkJsxExecutorService {
   }
 
   private bindJsxRuntime(js: string): string {
-    const jsxNames = [...new Set(js.match(/\bjsxDEV_[A-Za-z0-9_$]+\b/g) || [])];
+    const jsxNames = [...new Set(js.match(/\b(?:jsx|jsxs|jsxDEV)_[A-Za-z0-9_$]+\b/g) || [])];
     const fragmentNames = [...new Set(js.match(/\bFragment_[A-Za-z0-9_$]+\b/g) || [])];
     return [
       ...jsxNames.map(name => `const ${name} = jsxDEV;`),
@@ -87,6 +87,17 @@ export class FrameworkJsxExecutorService {
   private createContext(data: unknown, renderContext: FrameworkRenderContext): vm.Context {
     const context: vm.Context = Object.create(null);
     vm.createContext(context);
+    context.Array = Array;
+    context.Boolean = Boolean;
+    context.Date = Date;
+    context.JSON = JSON;
+    context.Math = Math;
+    context.Number = Number;
+    context.Object = Object;
+    context.RegExp = RegExp;
+    context.String = String;
+    context.URL = URL;
+    context.URLSearchParams = URLSearchParams;
     context.Function = undefined;
     context.eval = undefined;
     context.__dataJson = JSON.stringify(data ?? null);

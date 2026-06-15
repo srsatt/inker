@@ -5,7 +5,7 @@ import { getTrmnlFrameworkCss } from '../../plugins/sync/trmnl-framework';
 import { DefaultWidgetsService } from '../widgets/default-widgets.service';
 import { WidgetStyleService } from '../widgets/widget-style.service';
 import { ImageDataUrlService } from '../widgets/image-data-url.service';
-import { jsx, renderDocumentHtml, renderJsxToHtml, type JsxElement, type ScreenRenderDocument } from './screen-render-document';
+import { jsx, renderDocumentHtml, renderJsxToHtml, type JsxChild, type JsxElement, type ScreenRenderDocument } from './screen-render-document';
 import type { DeviceContext } from './screen-renderer.service';
 import type { WidgetRenderResult } from './widget-renderer.interface';
 
@@ -84,7 +84,7 @@ export class ScreenComposerService {
     if (!customWidgetId) return { contentHtml: '<div style="color:#999;">No widget ID</div>' };
 
     try {
-      const result = await this.customWidgets.getWithData(customWidgetId, false, {
+      const result = await this.customWidgets.getWithData(customWidgetId, true, {
         width: widget.width,
         height: widget.height,
         ctx: this.getWidgetContext(config),
@@ -111,7 +111,18 @@ export class ScreenComposerService {
       }
 
       if (renderedContent?.type === 'framework-jsx') {
-        return { content: jsx('div', { style: { width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%', overflow: 'hidden', display: 'flex' } }, renderedContent.node as WidgetRenderResult['content']) };
+        return {
+          content: jsx('div', {
+            style: {
+              width: '100%',
+              height: '100%',
+              maxWidth: '100%',
+              maxHeight: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+            },
+          }, renderedContent.node as JsxChild),
+        };
       }
 
       if (renderedContent?.type === 'framework-error') {

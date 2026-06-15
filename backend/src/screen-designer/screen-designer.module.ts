@@ -1,14 +1,18 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaService } from '../prisma/prisma.service';
 import { CustomWidgetsModule } from '../custom-widgets/custom-widgets.module';
+import { CustomWidgetsService } from '../custom-widgets/custom-widgets.service';
 import { SettingsModule } from '../settings/settings.module';
+import { SettingsService } from '../settings/settings.service';
 import { PluginsModule } from '../plugins/plugins.module';
 import { ScreenDesignerController, WidgetTemplatesController } from './screen-designer.controller';
 import { ScreenDesignerService } from './screen-designer.service';
 import { WidgetTemplatesService } from './services/widget-templates.service';
 import { PuppeteerScreenRendererService, ScreenRendererService } from './services/screen-renderer.service';
 import { SatoriScreenRendererService } from './services/screen-renderer.satori.service';
+import { TakumiScreenRendererService } from './services/screen-renderer.takumi.service';
 import { ScreenComposerService } from './services/screen-composer.service';
 import { ScreenRenderEngine } from './services/screen-render-engine.interface';
 import { DefaultWidgetsService } from './widgets/default-widgets.service';
@@ -54,33 +58,29 @@ import { WeatherWidgetService } from './widgets/weather-widget.service';
     TextWidgetService,
     WeatherWidgetService,
     WifiWidgetService,
-    PuppeteerScreenRendererService,
-    SatoriScreenRendererService,
     {
       provide: ScreenRendererService,
-      inject: [ConfigService, PuppeteerScreenRendererService, SatoriScreenRendererService],
+      inject: [ConfigService, PrismaService, CustomWidgetsService, SettingsService, ScreenComposerService],
       useFactory: (
         configService: ConfigService,
-        puppeteerRenderer: PuppeteerScreenRendererService,
-        satoriRenderer: SatoriScreenRendererService,
+        prisma: PrismaService,
+        customWidgetsService: CustomWidgetsService,
+        settingsService: SettingsService,
+        screenComposer: ScreenComposerService,
       ) => {
-        return configService.get<string>('renderer.engine') === 'satori'
-          ? satoriRenderer
-          : puppeteerRenderer;
+        const engine = configService.get<string>('renderer.engine');
+        if (engine === 'takumi') {
+          return new TakumiScreenRendererService(prisma, customWidgetsService, configService, settingsService, screenComposer);
+        }
+        if (engine === 'satori') {
+          return new SatoriScreenRendererService(prisma, customWidgetsService, configService, settingsService, screenComposer);
+        }
+        return new PuppeteerScreenRendererService(prisma, customWidgetsService, configService, settingsService, screenComposer);
       },
     },
     {
       provide: ScreenRenderEngine,
-      inject: [ConfigService, PuppeteerScreenRendererService, SatoriScreenRendererService],
-      useFactory: (
-        configService: ConfigService,
-        puppeteerRenderer: PuppeteerScreenRendererService,
-        satoriRenderer: SatoriScreenRendererService,
-      ) => {
-        return configService.get<string>('renderer.engine') === 'satori'
-          ? satoriRenderer
-          : puppeteerRenderer;
-      },
+      useExisting: ScreenRendererService,
     },
   ],
   exports: [

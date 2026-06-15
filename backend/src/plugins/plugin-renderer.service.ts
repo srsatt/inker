@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Liquid } from 'liquidjs';
-import * as sharp from 'sharp';
+import sharp from '../common/utils/sharp';
 import { ScreenRendererService, type RenderFormat } from '../screen-designer/services/screen-renderer.service';
 import { getTrmnlFrameworkCss } from './sync/trmnl-framework';
 

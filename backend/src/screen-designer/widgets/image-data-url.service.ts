@@ -1,11 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as sharpModule from 'sharp';
+import sharp from '../../common/utils/sharp';
 import { SettingsService, SETTING_KEYS } from '../../settings/settings.service';
 import { validateUrlSafety } from '../../common/utils/url-safety';
-
-const sharp = (sharpModule as any).default || sharpModule;
 
 @Injectable()
 export class ImageDataUrlService {

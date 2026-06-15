@@ -1,7 +1,16 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { PrismaLibSQL } from '@prisma/adapter-libsql';
 import { PrismaClient } from '@prisma/client';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+
+function toLibSqlUrl(databaseUrl: string): string {
+  if (!databaseUrl.startsWith('file:../data/')) {
+    return databaseUrl;
+  }
+
+  return `file:${join(process.cwd(), 'data', databaseUrl.slice('file:../data/'.length))}`;
+}
 
 /**
  * Prisma service that manages database connection lifecycle.
@@ -15,8 +24,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   constructor() {
     process.env.DATABASE_URL ||= 'file:../data/inker.db';
     mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+    const adapter = new PrismaLibSQL({ url: toLibSqlUrl(process.env.DATABASE_URL) });
 
     super({
+      adapter,
       log: [
         { level: 'query', emit: 'event' },
         { level: 'error', emit: 'stdout' },
