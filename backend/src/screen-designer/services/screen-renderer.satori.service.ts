@@ -48,7 +48,9 @@ export class SatoriScreenRendererService extends PuppeteerScreenRendererService 
     format: RenderFormat = 'png',
   ): Promise<Buffer> {
     const { width, height } = screenDesign;
-    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext);
+    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext, '', {
+      skipCustomWidgetFetch: mode === 'preview',
+    });
 
     const drawingPath = path.join(process.cwd(), 'uploads', 'drawings', `drawing_${screenDesign.id}.png`);
     if (fs.existsSync(drawingPath)) {

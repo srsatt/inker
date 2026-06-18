@@ -19,6 +19,7 @@ describe('TakumiScreenRendererService', () => {
   }
 
   it('renders device BMP from raw Takumi pixels without Sharp', async () => {
+    const composeCalls: unknown[][] = [];
     const root = jsx('div', {
       style: {
         width: '320px',
@@ -37,7 +38,10 @@ describe('TakumiScreenRendererService', () => {
       html: renderDocumentHtml(root, ''),
     };
     const renderer = createRenderer({
-      compose: async () => document,
+      compose: async (...args: unknown[]) => {
+        composeCalls.push(args);
+        return document;
+      },
     });
 
     const bmp = await (renderer as any).renderDesign({
@@ -50,5 +54,6 @@ describe('TakumiScreenRendererService', () => {
 
     expect(bmp.subarray(0, 2).toString('ascii')).toBe('BM');
     expect(bmp.length).toBe(7262);
+    expect(composeCalls[0]?.[3]).toEqual({ skipCustomWidgetFetch: false });
   });
 });

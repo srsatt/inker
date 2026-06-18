@@ -470,7 +470,7 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
     );
 
     // Use HTML-based rendering for pixel-perfect output matching frontend
-    let renderBuffer = await this.renderDesignAsHtml(screenDesign, deviceContext);
+    let renderBuffer = await this.renderDesignAsHtml(screenDesign, deviceContext, mode === 'preview');
 
     // Check if a separate drawing file exists and composite it on top
     // This allows screens with dynamic widgets (clock, etc.) to also display drawings
@@ -2779,9 +2779,15 @@ export class PuppeteerScreenRendererService implements ScreenRendererService, Sc
   /**
    * Render screen design from the shared JSX-style document.
    */
-  async renderDesignAsHtml(screenDesign: ScreenDesignWithWidgets, deviceContext?: DeviceContext): Promise<Buffer> {
+  async renderDesignAsHtml(
+    screenDesign: ScreenDesignWithWidgets,
+    deviceContext?: DeviceContext,
+    skipCustomWidgetFetch = false,
+  ): Promise<Buffer> {
     const startTime = Date.now();
-    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext, this.fontStyleTag);
+    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext, this.fontStyleTag, {
+      skipCustomWidgetFetch,
+    });
     const htmlGenTime = Date.now();
     this.logger.debug(`  HTML generation took ${htmlGenTime - startTime}ms`);
 

@@ -12,6 +12,10 @@ import type { WidgetRenderResult } from './widget-renderer.interface';
 type WidgetWithTemplate = ScreenWidget & { template: WidgetTemplate };
 type ScreenDesignWithWidgets = ScreenDesign & { widgets: WidgetWithTemplate[] };
 
+interface ComposeOptions {
+  skipCustomWidgetFetch?: boolean;
+}
+
 @Injectable()
 export class ScreenComposerService {
   private readonly logger = new Logger(ScreenComposerService.name);
@@ -23,8 +27,13 @@ export class ScreenComposerService {
     private readonly images: ImageDataUrlService,
   ) {}
 
-  async compose(screen: ScreenDesignWithWidgets, deviceContext?: DeviceContext, fontStyleTag = ''): Promise<ScreenRenderDocument> {
-    const children = await Promise.all(screen.widgets.map(widget => this.composeWidget(widget, deviceContext)));
+  async compose(
+    screen: ScreenDesignWithWidgets,
+    deviceContext?: DeviceContext,
+    fontStyleTag = '',
+    options: ComposeOptions = {},
+  ): Promise<ScreenRenderDocument> {
+    const children = await Promise.all(screen.widgets.map(widget => this.composeWidget(widget, deviceContext, options)));
     const root = jsx('div', {
       style: {
         width: `${screen.width}px`,
@@ -47,9 +56,13 @@ export class ScreenComposerService {
     };
   }
 
-  private async composeWidget(widget: WidgetWithTemplate, deviceContext?: DeviceContext): Promise<JsxElement> {
+  private async composeWidget(
+    widget: WidgetWithTemplate,
+    deviceContext: DeviceContext | undefined,
+    options: ComposeOptions,
+  ): Promise<JsxElement> {
     const config = (widget.config || {}) as Record<string, any>;
-    const rendered = await this.renderWidgetContent(widget, config, deviceContext);
+    const rendered = await this.renderWidgetContent(widget, config, deviceContext, options);
     const rotation = widget.rotation || 0;
     const opacity = (config.opacity as number) ?? 100;
     const transform = rotation !== 0 ? `transform:rotate(${rotation}deg);transform-origin:center center;` : '';
@@ -70,21 +83,26 @@ export class ScreenComposerService {
     widget: WidgetWithTemplate,
     config: Record<string, any>,
     deviceContext?: DeviceContext,
+    options: ComposeOptions = {},
   ): Promise<WidgetRenderResult> {
     if (this.defaultWidgets.canRender(widget.template.name)) {
       return this.defaultWidgets.render({ widget, config, deviceContext });
     }
-    if (widget.template.name === 'custom-widget-base') return this.renderCustomWidget(config, widget);
+    if (widget.template.name === 'custom-widget-base') return this.renderCustomWidget(config, widget, options);
     if (widget.template.name === 'plugin') return this.renderPluginPlaceholder(config);
     return { contentHtml: `<div style="color:#999;font-size:12px;">Unknown: ${this.style.escapeHtml(widget.template.name)}</div>` };
   }
 
-  private async renderCustomWidget(config: Record<string, any>, widget: WidgetWithTemplate): Promise<WidgetRenderResult> {
+  private async renderCustomWidget(
+    config: Record<string, any>,
+    widget: WidgetWithTemplate,
+    options: ComposeOptions,
+  ): Promise<WidgetRenderResult> {
     const customWidgetId = config.customWidgetId as number | undefined;
     if (!customWidgetId) return { contentHtml: '<div style="color:#999;">No widget ID</div>' };
 
     try {
-      const result = await this.customWidgets.getWithData(customWidgetId, true, {
+      const result = await this.customWidgets.getWithData(customWidgetId, options.skipCustomWidgetFetch === true, {
         width: widget.width,
         height: widget.height,
         ctx: this.getWidgetContext(config),

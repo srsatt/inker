@@ -50,7 +50,9 @@ export class TakumiScreenRendererService extends PuppeteerScreenRendererService 
     }
 
     const startedAt = performance.now();
-    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext);
+    const renderDocument = await this.screenComposer.compose(screenDesign, deviceContext, '', {
+      skipCustomWidgetFetch: mode === 'preview',
+    });
     const composedAt = performance.now();
     const renderer = await this.getTakumiRenderer();
     const rendererReadyAt = performance.now();

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { configuration } from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -37,6 +38,38 @@ import { TextWidgetService } from '../screen-designer/widgets/text-widget.servic
 import { WeatherWidgetService } from '../screen-designer/widgets/weather-widget.service';
 import { DeviceApiController } from './device-api.controller';
 
+const frontendDistPath = [
+  join(process.cwd(), '..', 'frontend', 'dist'),
+  join(process.cwd(), 'frontend', 'dist'),
+  join(process.cwd(), 'public'),
+].find((staticPath) => existsSync(staticPath));
+
+const staticImports = [
+  ServeStaticModule.forRoot({
+    rootPath: join(process.cwd(), 'assets'),
+    serveRoot: '/assets',
+    serveStaticOptions: { index: false, fallthrough: true },
+  }),
+  ServeStaticModule.forRoot({
+    rootPath: join(process.cwd(), 'uploads'),
+    serveRoot: '/uploads',
+    serveStaticOptions: { index: false, fallthrough: true },
+  }),
+  ...(frontendDistPath
+    ? [
+        ServeStaticModule.forRoot({
+          rootPath: frontendDistPath,
+          exclude: [
+            '/api',
+            '/api/(.*)',
+            '/uploads/(.*)',
+          ],
+          serveStaticOptions: { fallthrough: true },
+        }),
+      ]
+    : []),
+];
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -44,16 +77,7 @@ import { DeviceApiController } from './device-api.controller';
       load: [configuration],
       envFilePath: ['.env.local', '.env'],
     }),
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'assets'),
-      serveRoot: '/assets',
-      serveStaticOptions: { index: false, fallthrough: true },
-    }),
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/uploads',
-      serveStaticOptions: { index: false, fallthrough: true },
-    }),
+    ...staticImports,
     PrismaModule,
   ],
   controllers: [DeviceApiController],

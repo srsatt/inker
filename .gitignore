@@ -8,6 +8,8 @@ dist/
 build/
 .next/
 out/
+*.tgz
+.tmp/
 
 # Environment
 .env
@@ -41,6 +43,8 @@ scripts/local/
 !scripts/local/rpi-proxy.ts
 backend/test-lint.js
 backend/test-weather.js
+backend/scripts/takumi-bench.ts
+ops/systemd/inker.service
 
 # IDE
 .vscode/

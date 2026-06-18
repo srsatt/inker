@@ -76,7 +76,66 @@ describe('ScreenComposerService', () => {
 
     expect(document.rootHtml).toContain('Birds today');
     expect(document.rootHtml).not.toContain('Framework JSX widgets are not');
-    expect(getWithDataCalls[0]?.[1]).toBe(true);
+    expect(getWithDataCalls[0]?.[1]).toBe(false);
     expect(lintSatoriNode(document.root)).toEqual([]);
+  });
+
+  it('uses cached custom widget data for explicit preview composition', async () => {
+    const getWithDataCalls: unknown[][] = [];
+    const service = new ScreenComposerService(
+      { canRender: () => false } as unknown as DefaultWidgetsService,
+      {
+        getWithData: async (...args: unknown[]) => {
+          getWithDataCalls.push(args);
+          return {
+            widget: { config: {} },
+            data: {},
+            renderedContent: 'Cached preview',
+          };
+        },
+      } as unknown as CustomWidgetsService,
+      new WidgetStyleService(new ConfigService()),
+      { load: async () => null } as unknown as ImageDataUrlService,
+    );
+
+    await service.compose({
+      id: 1,
+      name: 'Preview',
+      description: null,
+      width: 800,
+      height: 480,
+      background: '#ffffff',
+      isPublic: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      widgets: [{
+        id: 1,
+        screenDesignId: 1,
+        templateId: 10,
+        x: 0,
+        y: 0,
+        width: 360,
+        height: 260,
+        rotation: 0,
+        config: { customWidgetId: 2 },
+        zIndex: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        template: {
+          id: 10,
+          name: 'custom-widget-base',
+          description: null,
+          category: 'custom',
+          icon: null,
+          defaultConfig: {},
+          minWidth: 100,
+          minHeight: 50,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }],
+    }, undefined, '', { skipCustomWidgetFetch: true });
+
+    expect(getWithDataCalls[0]?.[1]).toBe(true);
   });
 });
